@@ -4,6 +4,27 @@ All notable changes to the Branch Time Tracker extension will be documented in t
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-07-23
+
+### Added
+- New tab-based statistics view with improved visualization
+- Visual percentage bars for time distribution
+- Dark/light theme support in the statistics view
+
+### Changed
+- Replaced popup with a persistent tab for better user experience
+- Improved statistics display with better formatting and sorting
+- Statistics now refresh when opened for accurate timing
+- Better visual hierarchy in the statistics view
+
+## [0.2.2] - 2025-07-23
+
+### Changed
+- Removed seconds from status bar for cleaner look
+- Added total time tracked summary
+- Updated publisher information to use personal account
+- Fixed icon display in the extension
+
 ## [0.2.1] - 2025-07-23
 
 ### Changed

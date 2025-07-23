@@ -2,8 +2,8 @@
   "name": "branch-time-tracker",
   "displayName": "Branch Time Tracker",
   "description": "Track time spent coding on different git branches",
-  "version": "0.2.1",
-  "publisher": "branch-time-tracker",
+  "version": "0.3.0",
+  "publisher": "davidcacote",
   "engines": {
     "vscode": "^1.60.0"
   },
@@ -14,7 +14,7 @@
     "workspaceContains:.git"
   ],
   "main": "./out/extension.js",
-  "icon": "media/icon.png",
+  "icon": "media/icon124.png",
   "contributes": {
     "commands": [
       {

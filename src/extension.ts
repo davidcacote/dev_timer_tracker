@@ -126,7 +126,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // Update status bar with time spent on current branch
+    // Update status bar with time spent on current branch (without seconds)
     function updateStatusBar(): void {
         if (!statusBarItem) {
             statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -142,9 +142,9 @@ export function activate(context: vscode.ExtensionContext) {
 
         const branchTime = branchTimes.get(currentBranch);
         const timeSpent = branchTime ? branchTime.seconds : 0;
-        const formattedTime = formatTime(timeSpent);
+        const formattedTime = formatTime(timeSpent, false);
         
-        // Show just the time with a clock icon
+        // Show just the time with a clock icon (no seconds)
         statusBarItem.text = `$(watch) ${formattedTime} on branch`;
         statusBarItem.tooltip = `Spent ${formattedTime} on current branch. Click for details.`;
     }
@@ -191,8 +191,8 @@ export function activate(context: vscode.ExtensionContext) {
         });
     }
 
-    // Format time in a human-readable format
-    function formatTime(seconds: number): string {
+    // Format time in a human-readable format (without seconds for status bar)
+    function formatTime(seconds: number, showSeconds: boolean = false): string {
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
         const remainingSeconds = seconds % 60;
@@ -200,32 +200,168 @@ export function activate(context: vscode.ExtensionContext) {
         const parts: string[] = [];
         if (hours > 0) parts.push(`${hours}h`);
         if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
-        parts.push(`${remainingSeconds}s`);
+        if (showSeconds) parts.push(`${remainingSeconds}s`);
         
-        return parts.join(' ');
+        return parts.length > 0 ? parts.join(' ') : '0m';
     }
 
-    // Show branch time statistics in a more readable format
-    function showBranchStats(): void {
+    // Show branch time statistics in a new tab
+    async function showBranchStats(): Promise<void> {
+        // Force refresh the current branch time before showing stats
+        if (currentBranch) {
+            await updateBranchTime();
+        }
+
         if (branchTimes.size === 0) {
             vscode.window.showInformationMessage('No branch time data available yet.');
             return;
         }
 
-        const stats = Array.from(branchTimes.entries())
-            .sort((a, b) => b[1].seconds - a[1].seconds)
-            .map(([branch, time]) => {
-                const formattedTime = formatTime(time.seconds).padEnd(10, ' ');
-                const branchIndicator = branch === currentBranch ? '→ ' : '  ';
-                return `${branchIndicator}${formattedTime} • ${branch}`;
-            });
+        // Sort branches by time spent (descending)
+        const sortedBranches = Array.from(branchTimes.entries())
+            .sort((a, b) => b[1].seconds - a[1].seconds);
 
-        // Create a more structured message
-        const message = `Branch Time Statistics:\n\n${stats.join('\n')}\n\n` +
-                      `Total branches: ${branchTimes.size}\n` +
-                      `Current branch: ${currentBranch || 'None'}`;
-                      
-        vscode.window.showInformationMessage(message, { modal: false });
+        // Calculate total time across all branches
+        const totalSeconds = sortedBranches.reduce((sum, [_, time]) => sum + time.seconds, 0);
+
+        // Create and show a new webview panel
+        const panel = vscode.window.createWebviewPanel(
+            'branchTimeTracker',
+            'Branch Time Stats',
+            vscode.ViewColumn.Beside,
+            {
+                enableScripts: false,
+                retainContextWhenHidden: true
+            }
+        );
+
+        // Generate HTML content
+        panel.webview.html = getBranchStatsHtml(sortedBranches, totalSeconds);
+
+        // Update the panel when the active branch changes
+        const disposable = vscode.window.onDidChangeActiveTextEditor(() => {
+            if (panel.visible) {
+                panel.webview.html = getBranchStatsHtml(sortedBranches, totalSeconds);
+            }
+        });
+
+        // Clean up the event listener when the panel is disposed
+        panel.onDidDispose(() => {
+            disposable.dispose();
+        });
+    }
+
+    // Generate HTML for the branch statistics view
+    function getBranchStatsHtml(sortedBranches: [string, BranchTime][], totalSeconds: number): string {
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Branch Time Tracker</title>
+                <style>
+                    body {
+                        font-family: var(--vscode-font-family);
+                        padding: 20px;
+                        color: var(--vscode-foreground);
+                        background-color: var(--vscode-editor-background);
+                        line-height: 1.6;
+                    }
+                    h1 {
+                        color: var(--vscode-textLink-foreground);
+                        margin-bottom: 20px;
+                        border-bottom: 1px solid var(--vscode-panel-border);
+                        padding-bottom: 10px;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 20px 0;
+                    }
+                    th, td {
+                        text-align: left;
+                        padding: 8px 12px;
+                        border-bottom: 1px solid var(--vscode-panel-border);
+                    }
+                    th {
+                        background-color: var(--vscode-panelSectionHeader-background);
+                        font-weight: 600;
+                    }
+                    tr:hover {
+                        background-color: var(--vscode-list-hoverBackground);
+                    }
+                    .current-branch {
+                        font-weight: bold;
+                        color: var(--vscode-textLink-activeForeground);
+                    }
+                    .summary {
+                        margin-top: 20px;
+                        padding: 15px;
+                        background-color: var(--vscode-panelSectionHeader-background);
+                        border-radius: 3px;
+                    }
+                    .time {
+                        font-family: var(--vscode-editor-font-family);
+                        font-size: 0.95em;
+                        white-space: nowrap;
+                    }
+                    .percentage-bar {
+                        height: 8px;
+                        background-color: var(--vscode-progressBar-background);
+                        border-radius: 4px;
+                        margin-top: 4px;
+                        overflow: hidden;
+                    }
+                    .percentage-fill {
+                        height: 100%;
+                        background-color: var(--vscode-textLink-foreground);
+                        border-radius: 4px;
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>Branch Time Tracker</h1>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Branch</th>
+                            <th>Time Spent</th>
+                            <th>Percentage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sortedBranches.map(([branch, time], index) => {
+                            const isCurrent = branch === currentBranch;
+                            const percentage = totalSeconds > 0 ? (time.seconds / totalSeconds) * 100 : 0;
+                            const formattedPercentage = percentage.toFixed(1);
+                            return `
+                                <tr class="${isCurrent ? 'current-branch' : ''}">
+                                    <td>${index + 1}</td>
+                                    <td>${branch}${isCurrent ? ' (current)' : ''}</td>
+                                    <td class="time">${formatTime(time.seconds, true)}</td>
+                                    <td>
+                                        ${formattedPercentage}%
+                                        <div class="percentage-bar">
+                                            <div class="percentage-fill" style="width: ${percentage}%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+
+                <div class="summary">
+                    <p>Total time tracked: <strong>${formatTime(totalSeconds, true)}</strong></p>
+                    <p>Active branch: <strong>${currentBranch || 'None'}</strong></p>
+                    <p>Total branches: <strong>${branchTimes.size}</strong></p>
+                </div>
+            </body>
+            </html>
+        `;
     }
 
     // Register commands
