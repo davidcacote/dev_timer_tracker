@@ -18,6 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
     let currentTimer: NodeJS.Timeout | null = null;
     let branchTimes: Map<string, BranchTime> = new Map();
     let workspaceFolder: vscode.WorkspaceFolder | undefined;
+    let statusBarItem: vscode.StatusBarItem;
 
     // Initialize branch times from storage
     function loadBranchTimes(): void {
@@ -125,16 +126,48 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
 
+    // Update status bar with time spent on current branch
+    function updateStatusBar(): void {
+        if (!statusBarItem) {
+            statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+            statusBarItem.command = 'branch-time-tracker.showStats';
+            statusBarItem.tooltip = 'Click to view branch time statistics';
+            statusBarItem.show();
+        }
+
+        if (!currentBranch) {
+            statusBarItem.text = '$(watch) No active branch';
+            return;
+        }
+
+        const branchTime = branchTimes.get(currentBranch);
+        const timeSpent = branchTime ? branchTime.seconds : 0;
+        const formattedTime = formatTime(timeSpent);
+        
+        // Show just the time with a clock icon
+        statusBarItem.text = `$(watch) ${formattedTime} on branch`;
+        statusBarItem.tooltip = `Spent ${formattedTime} on current branch. Click for details.`;
+    }
+
     // Initialize extension
     async function initialize(): Promise<void> {
+        // Create status bar item
+        statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+        statusBarItem.command = 'branch-time-tracker.showStats';
+        statusBarItem.text = '$(loading~spin) Loading branch time...';
+        statusBarItem.show();
+
         workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
+            statusBarItem.text = '$(error) No workspace folder';
+            statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time';
             console.log('No workspace folder open');
             return;
         }
 
         loadBranchTimes();
         await handleBranchChange();
+        updateStatusBar();
 
         // Set up periodic branch checking
         const config = vscode.workspace.getConfiguration('branchTimeTracker');
@@ -142,6 +175,7 @@ export function activate(context: vscode.ExtensionContext) {
         
         currentTimer = setInterval(async () => {
             await handleBranchChange();
+            updateStatusBar();
         }, updateInterval);
 
         // Set up event listeners
@@ -149,6 +183,10 @@ export function activate(context: vscode.ExtensionContext) {
             workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (workspaceFolder) {
                 await handleBranchChange();
+                updateStatusBar();
+            } else {
+                statusBarItem.text = '$(error) No workspace folder';
+                statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time';
             }
         });
     }
@@ -167,7 +205,7 @@ export function activate(context: vscode.ExtensionContext) {
         return parts.join(' ');
     }
 
-    // Show branch time statistics
+    // Show branch time statistics in a more readable format
     function showBranchStats(): void {
         if (branchTimes.size === 0) {
             vscode.window.showInformationMessage('No branch time data available yet.');
@@ -177,11 +215,17 @@ export function activate(context: vscode.ExtensionContext) {
         const stats = Array.from(branchTimes.entries())
             .sort((a, b) => b[1].seconds - a[1].seconds)
             .map(([branch, time]) => {
-                return `${branch}: ${formatTime(time.seconds)}`;
+                const formattedTime = formatTime(time.seconds).padEnd(10, ' ');
+                const branchIndicator = branch === currentBranch ? '→ ' : '  ';
+                return `${branchIndicator}${formattedTime} • ${branch}`;
             });
 
-        const message = `Branch Time Statistics:\n\n${stats.join('\n')}`;
-        vscode.window.showInformationMessage(message);
+        // Create a more structured message
+        const message = `Branch Time Statistics:\n\n${stats.join('\n')}\n\n` +
+                      `Total branches: ${branchTimes.size}\n` +
+                      `Current branch: ${currentBranch || 'None'}`;
+                      
+        vscode.window.showInformationMessage(message, { modal: false });
     }
 
     // Register commands
@@ -200,6 +244,7 @@ export function activate(context: vscode.ExtensionContext) {
                 currentTimer = null;
             }
             updateBranchTime(); // Save final time update
+            statusBarItem?.dispose();
         }
     };
 }

@@ -2,7 +2,8 @@
     "name": "branch-time-tracker",
     "displayName": "Branch Time Tracker",
     "description": "Track your coding time per git branch",
-    "version": "0.1.0",
+    "version": "0.2.1",
+    "publisher": "branch-time-tracker",
     "repository": {
         "type": "git",
         "url": "https://github.com/yourusername/branch-time-tracker.git"
