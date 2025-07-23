@@ -11,3 +11,4 @@ All notable changes to the Branch Time Tracker extension will be documented in t
 - Simple view to display branch statistics
 - Automatic time tracking when switching branches
 - Data persistence between sessions
+
