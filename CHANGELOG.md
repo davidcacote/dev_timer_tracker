@@ -4,6 +4,13 @@ All notable changes to the Branch Time Tracker extension will be documented in t
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-07-23
+
+### Added
+- Manual refresh button in the statistics view
+- Auto-refresh toggle with configurable interval (1-300 seconds)
+- Improved UI for refresh controls
+
 ## [0.3.0] - 2025-07-23
 
 ### Added

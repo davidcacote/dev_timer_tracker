@@ -45,6 +45,63 @@ This extension contributes the following settings:
 
 - `branchTimeTracker.updateInterval`: How often to update the branch time (in milliseconds)
 
+## Build Process
+
+This project includes a build system that organizes build artifacts in a `builds` directory and prevents file overwrites.
+
+### Prerequisites
+
+- Node.js (v14 or higher)
+- npm (comes with Node.js)
+- VS Code Extension Manager (vsce)
+
+### Building the Extension
+
+1. **Install Dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Compile TypeScript**
+   ```bash
+   npm run compile
+   ```
+   This compiles the TypeScript code to the `builds/out` directory.
+
+3. **Package the Extension**
+   ```bash
+   npm run vscode:package
+   ```
+   This creates a VSIX file in the `builds` directory with a timestamp in the filename (e.g., `branch-time-tracker-0.3.1-20250723-175132.vsix`).
+
+### Build Organization
+
+- All build artifacts are stored in the `builds` directory
+- Each VSIX file includes a timestamp to prevent overwrites
+- The `builds/out` directory contains compiled JavaScript files
+- The `builds` directory is excluded from version control
+
+### Organizing Existing Builds
+
+To organize existing VSIX files into the builds directory:
+
+```bash
+./scripts/organize-builds.sh
+```
+
+This script:
+- Moves all `.vsix` files from the root directory to the `builds` directory
+- Appends a timestamp to each filename
+- Preserves the version number in the filename
+
+### Installing a Local Build
+
+To install a local build in VS Code:
+
+1. Open the Command Palette (Ctrl+Shift+P or Cmd+Shift+P)
+2. Select "Extensions: Install from VSIX..."
+3. Navigate to the `builds` directory and select the desired VSIX file
+
 ## Known Issues
 
 - Initial alpha version - may contain bugs
