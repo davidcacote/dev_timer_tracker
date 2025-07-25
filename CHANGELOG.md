@@ -4,6 +4,13 @@ All notable changes to the Branch Time Tracker extension will be documented in t
 
 ## [Unreleased]
 
+## [0.3.2] - 2025-07-24
+
+### Fixed
+
+- Improved error handling for git operations
+- Fixed potential memory leaks in the statistics view
+
 ## [0.3.1] - 2025-07-23
 
 ### Added

@@ -10,6 +10,9 @@ A VS Code extension that tracks time spent on different Git branches with a beau
 - Saves time tracking data between sessions
 - Simple and lightweight
 - Visual time distribution across branches
+- Manual refresh button for up-to-date statistics
+- Auto-refresh with configurable interval (1-300 seconds)
+- Improved error handling for git operations
 
 ## Installation
 
@@ -58,21 +61,26 @@ This project includes a build system that organizes build artifacts in a `builds
 ### Building the Extension
 
 1. **Install Dependencies**
+
    ```bash
    npm install
    ```
 
 2. **Compile TypeScript**
+
    ```bash
    npm run compile
    ```
+
    This compiles the TypeScript code to the `builds/out` directory.
 
 3. **Package the Extension**
+
    ```bash
    npm run vscode:package
    ```
-   This creates a VSIX file in the `builds` directory with a timestamp in the filename (e.g., `branch-time-tracker-0.3.1-20250723-175132.vsix`).
+
+   This creates a VSIX file in the `builds` directory with a timestamp in the filename (e.g., `branch-time-tracker-0.3.2-20250724-015657.vsix`).
 
 ### Build Organization
 

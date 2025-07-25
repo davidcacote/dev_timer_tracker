@@ -89,7 +89,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         });
     }
 
-    // Update time for current branch
+    // Update time for current branch - FIXED LOGIC
     function updateBranchTime(): void {
         if (!currentBranch) return;
 
@@ -99,20 +99,16 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             lastUpdated: now.toISOString()
         };
 
-        // Always update the lastUpdated time to ensure we track the current time
         const lastUpdate = new Date(branchTime.lastUpdated);
         const secondsElapsed = Math.floor((now.getTime() - lastUpdate.getTime()) / 1000);
         
-        // Always update the lastUpdated time, even if no time has passed
-        branchTime.lastUpdated = now.toISOString();
-        
-        // Only increment the seconds if time has actually passed
+        // Only update if time has actually passed (avoid unnecessary updates)
         if (secondsElapsed > 0) {
             branchTime.seconds += secondsElapsed;
+            branchTime.lastUpdated = now.toISOString();
+            branchTimes.set(currentBranch, branchTime);
+            saveBranchTimes();
         }
-        
-        branchTimes.set(currentBranch, branchTime);
-        saveBranchTimes();
     }
 
     // Handle branch change
@@ -134,6 +130,12 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                     seconds: 0,
                     lastUpdated: new Date().toISOString()
                 });
+                saveBranchTimes();
+            } else {
+                // Update lastUpdated to current time when switching to existing branch
+                const branchTime = branchTimes.get(currentBranch)!;
+                branchTime.lastUpdated = new Date().toISOString();
+                branchTimes.set(currentBranch, branchTime);
                 saveBranchTimes();
             }
             
@@ -160,8 +162,8 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         const formattedTime = formatTime(timeSpent, false);
         
         // Show just the time with a clock icon (no seconds)
-        statusBarItem.text = `$(watch) ${formattedTime} on branch`;
-        statusBarItem.tooltip = `Spent ${formattedTime} on current branch. Click for details.`;
+        statusBarItem.text = `$(watch) ${formattedTime} on ${currentBranch}`;
+        statusBarItem.tooltip = `Spent ${formattedTime} on branch "${currentBranch}". Click for details.`;
     }
 
     // Initialize extension
@@ -180,16 +182,11 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             return;
         }
 
-        // Get saved auto-refresh settings (use local variables to avoid shadowing)
-        const savedAutoRefresh = context.globalState.get<boolean>('branchTimeTracker.autoRefreshEnabled', true);
-        // Get interval in minutes from storage, default to 2 minutes if not set
+        // Load settings from storage
+        autoRefreshEnabled = context.globalState.get<boolean>('branchTimeTracker.autoRefreshEnabled', true);
         const savedIntervalMinutes = context.globalState.get<number>('branchTimeTracker.autoRefreshInterval', 2);
+        autoRefreshInterval = Math.max(1, savedIntervalMinutes || 2) * ONE_MINUTE;
 
-        // Update the module state with saved values
-        autoRefreshEnabled = savedAutoRefresh;
-        // Ensure we have a valid interval (minimum 1 minute, default 2 minutes)
-        const validatedInterval = Math.max(1, savedIntervalMinutes || 2);
-        autoRefreshInterval = validatedInterval * ONE_MINUTE; // Convert minutes to ms
         loadBranchTimes();
         await handleBranchChange();
         updateStatusBar();
@@ -210,7 +207,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         });
     }
 
-        // Escape HTML to prevent XSS
+    // Escape HTML to prevent XSS
     function escapeHtml(unsafe: string): string {
         return unsafe
             .replace(/&/g, '&amp;')
@@ -258,7 +255,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                 
             }, autoRefreshInterval);
             
-            console.log(`Auto-refresh enabled with ${autoRefreshInterval / 1000} second interval`);
+            console.log(`Auto-refresh enabled with ${autoRefreshInterval / ONE_MINUTE} minute interval`);
         }
     }
 
@@ -278,17 +275,13 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
     async function showBranchStats(): Promise<void> {
         // Force refresh the current branch time before showing stats
         if (currentBranch) {
-            await updateBranchTime();
+            updateBranchTime();
         }
 
         if (branchTimes.size === 0) {
             vscode.window.showInformationMessage('No branch time data available yet.');
             return;
         }
-        
-        // Get saved auto-refresh settings (use local variables to avoid shadowing)
-        const savedAutoRefresh = context.globalState.get<boolean>('branchTimeTracker.autoRefreshEnabled', true);
-        const savedInterval = context.globalState.get<number>('branchTimeTracker.autoRefreshInterval', 2);
 
         // Sort branches by time spent (descending)
         const sortedBranches = Array.from(branchTimes.entries())
@@ -303,42 +296,22 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             'Branch Time Stats',
             vscode.ViewColumn.Beside,
             {
-                enableScripts: true, // Enable scripts for refresh functionality
+                enableScripts: true,
                 retainContextWhenHidden: true
             }
         );
 
-        // Generate HTML content with current settings
-        panel.webview.html = getBranchStatsHtml(
-            sortedBranches, 
-            totalSeconds, 
-            false, 
-            autoRefreshEnabled, 
-            autoRefreshInterval
-        );
-
-        // Update the panel when the active branch changes
-        const disposable = vscode.window.onDidChangeActiveTextEditor(() => {
-            if (panel.visible) {
-                panel.webview.html = getBranchStatsHtml(sortedBranches, totalSeconds);
-            }
-        });
-
-        // Update panel content function with proper typing
-        const updatePanelContent = (panel: vscode.WebviewPanel, branches: [string, BranchTime][], total: number) => {
-            // Always get fresh data for the panel
+        // Update panel content function
+        const updatePanelContent = () => {
             const freshBranches = Array.from(branchTimes.entries())
                 .sort((a, b) => b[1].seconds - a[1].seconds);
             const freshTotal = freshBranches.reduce((sum, [_, time]) => sum + time.seconds, 0);
             
-            panel.webview.html = getBranchStatsHtml(
-                freshBranches, 
-                freshTotal, 
-                true, 
-                savedAutoRefresh, 
-                savedInterval // Already in seconds
-            );
+            panel.webview.html = getBranchStatsHtml(freshBranches, freshTotal);
         };
+
+        // Initial content
+        updatePanelContent();
 
         // Handle messages from the webview
         const messageDisposable = panel.webview.onDidReceiveMessage(
@@ -347,23 +320,23 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                 switch (message.command) {
                     case 'refresh':
                         // Force refresh the stats and update status bar
-                        await updateBranchTime();
-                        updatePanelContent(panel, sortedBranches, totalSeconds);
-                        updateStatusBar(); // Update status bar on manual refresh
+                        if (currentBranch) {
+                            updateBranchTime();
+                        }
+                        updatePanelContent();
+                        updateStatusBar();
                         break;
                         
                     case 'setAutoRefresh':
                         // Update auto-refresh settings
                         const newEnabled = message.enabled;
-                        // Ensure we have a valid interval (minimum 1 minute, default 2 minutes)
                         const newIntervalMinutes = Math.max(1, message.interval || 2);
-                        const newIntervalMs = newIntervalMinutes * ONE_MINUTE;
                         
                         // Update the module state
                         autoRefreshEnabled = newEnabled;
-                        autoRefreshInterval = newIntervalMs;
+                        autoRefreshInterval = newIntervalMinutes * ONE_MINUTE;
                         
-                        // Save settings (store in minutes for consistency)
+                        // Save settings
                         await context.globalState.update('branchTimeTracker.autoRefreshEnabled', newEnabled);
                         await context.globalState.update('branchTimeTracker.autoRefreshInterval', newIntervalMinutes);
                         
@@ -371,7 +344,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                         setupAutoRefresh();
                         
                         // Update the panel to show the new settings
-                        updatePanelContent(panel, sortedBranches, totalSeconds);
+                        updatePanelContent();
                         break;
                 }
             },
@@ -380,11 +353,10 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         );
         
         // Register for auto-refresh updates
-        const refreshDisposable = registerRefreshCallback(() => updatePanelContent(panel, sortedBranches, totalSeconds));
+        const refreshDisposable = registerRefreshCallback(updatePanelContent);
 
         // Clean up when the panel is disposed
         panel.onDidDispose(() => {
-            disposable.dispose();
             messageDisposable.dispose();
             refreshDisposable.dispose();
         });
@@ -393,33 +365,8 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
     // Get extension version from package.json
     const extensionVersion = context.extension.packageJSON.version;
 
-    // Generate HTML for the branch statistics view
-    function getBranchStatsHtml(
-        sortedBranches: [string, BranchTime][], 
-        totalSeconds: number, 
-        isPartialUpdate: boolean = false,
-        autoRefreshEnabled: boolean = true,
-        autoRefreshInterval: number = DEFAULT_UPDATE_INTERVAL
-    ): string {
-        // Generate the rows for the branches table
-        const rows = sortedBranches.map(([branch, time], index) => {
-            const percentage = totalSeconds > 0 ? (time.seconds / totalSeconds) * 100 : 0;
-            const isCurrent = branch === currentBranch;
-            
-            return `
-                <tr${isCurrent ? ' class="current-branch"' : ''}>
-                    <td>${index + 1}</td>
-                    <td>${escapeHtml(branch)}${isCurrent ? ' <span class="codicon codicon-arrow-right"></span>' : ''}</td>
-                    <td class="time">${formatTime(time.seconds, true)}</td>
-                    <td>
-                        <div>${percentage.toFixed(1)}%</div>
-                        <div class="percentage-bar">
-                            <div class="percentage-fill" style="width: ${percentage}%"></div>
-                        </div>
-                    </td>
-                </tr>`;
-        }).join('');
-
+    // FIXED: Generate HTML for the branch statistics view
+    function getBranchStatsHtml(sortedBranches: [string, BranchTime][], totalSeconds: number): string {
         return `
             <!DOCTYPE html>
             <html>
@@ -430,9 +377,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                 <script>
                     const vscode = acquireVsCodeApi();
                     
-                    // Function to set up event listeners
                     function setupEventListeners() {
-                        // Handle refresh button click
                         const refreshButton = document.getElementById('refresh-button');
                         if (refreshButton) {
                             refreshButton.onclick = () => {
@@ -440,13 +385,12 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                             };
                         }
                         
-                        // Handle auto-refresh toggle
                         const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
                         const refreshInterval = document.getElementById('refresh-interval');
                         
                         if (autoRefreshToggle) {
                             autoRefreshToggle.onchange = (e) => {
-                                const interval = refreshInterval ? parseInt(refreshInterval.value) : 5;
+                                const interval = refreshInterval ? parseInt(refreshInterval.value) : 2;
                                 vscode.postMessage({ 
                                     command: 'setAutoRefresh', 
                                     enabled: e.target.checked,
@@ -455,49 +399,25 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                             };
                         }
                         
-                        // Handle interval input change
                         if (refreshInterval) {
                             refreshInterval.onchange = (e) => {
-                                const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
-                                if (autoRefreshToggle && autoRefreshToggle.checked) {
-                                    vscode.postMessage({ 
-                                        command: 'setAutoRefresh',
-                                        enabled: true,
-                                        interval: parseInt(e.target.value)
-                                    });
-                                }
+                                const enabled = autoRefreshToggle ? autoRefreshToggle.checked : false;
+                                vscode.postMessage({ 
+                                    command: 'setAutoRefresh',
+                                    enabled: enabled,
+                                    interval: parseInt(e.target.value)
+                                });
                             };
                         }
                     }
                     
-                    // Initialize event listeners when the DOM is loaded
                     if (document.readyState === 'loading') {
                         document.addEventListener('DOMContentLoaded', setupEventListeners);
                     } else {
                         setupEventListeners();
                     }
-                    
-                    // Handle messages from the extension
-                    window.addEventListener('message', event => {
-                        const message = event.data;
-                        if (message.command === 'updateStats') {
-                            // Update only the stats table, not the header/version
-                            const statsTable = document.getElementById('stats-table');
-                            if (statsTable) {
-                                statsTable.innerHTML = message.content;
-                                // Re-attach event listeners after content update
-                                setupEventListeners();
-                            }
-                        }
-                    });
                 </script>
                 <style>
-                    .version-info {
-                        color: var(--vscode-comment-foreground);
-                        font-size: 0.8em;
-                        margin-bottom: 10px;
-                    }
-                    
                     body {
                         font-family: var(--vscode-font-family);
                         padding: 20px;
@@ -505,78 +425,49 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                         background-color: var(--vscode-editor-background);
                         line-height: 1.6;
                     }
+                    
                     h1 {
                         color: var(--vscode-textLink-foreground);
                         margin-bottom: 20px;
                         border-bottom: 1px solid var(--vscode-panel-border);
-                    }
-                    tr:hover {
-                        background-color: var(--vscode-list-hoverBackground);
-                    }
-                    .current-branch {
-                        font-weight: bold;
-                        color: var(--vscode-textLink-activeForeground);
-                    }
-                    .summary {
-                        margin-top: 20px;
-                        padding: 15px;
-                        background-color: var(--vscode-panelSectionHeader-background);
-                        border-radius: 3px;
-                    }
-                    .time {
-                        font-family: var(--vscode-editor-font-family);
-                        font-size: 0.95em;
-                        white-space: nowrap;
-                    }
-                    .percentage-bar {
-                        height: 8px;
-                        background-color: var(--vscode-progressBar-background);
-                        border-radius: 4px;
-                        margin-top: 4px;
-                        overflow: hidden;
-                    }
-                    .percentage-fill {
-                        height: 100%;
-                        background-color: var(--vscode-textLink-foreground);
-                        border-radius: 4px;
+                        padding-bottom: 10px;
                     }
                     
-                    /* Refresh controls */
+                    .version-info {
+                        color: var(--vscode-comment-foreground);
+                        font-size: 0.8em;
+                        margin-bottom: 20px;
+                    }
+                    
                     .refresh-controls {
                         display: flex;
                         gap: 15px;
                         align-items: center;
                         margin-bottom: 20px;
-                        padding: 10px;
-                        background-color: var(--vscode-panelSectionHeader-background);
+                        padding: 15px;
+                        background-color: var(--vscode-panel-background);
+                        border: 1px solid var(--vscode-panel-border);
                         border-radius: 4px;
                     }
                     
                     .refresh-button {
-                        padding: 5px 12px;
+                        padding: 8px 16px;
                         background-color: var(--vscode-button-background);
                         color: var(--vscode-button-foreground);
                         border: none;
-                        border-radius: 2px;
+                        border-radius: 3px;
                         cursor: pointer;
-                        display: flex;
-                        align-items: center;
-                        gap: 5px;
+                        font-size: 0.9em;
                     }
                     
                     .refresh-button:hover {
                         background-color: var(--vscode-button-hoverBackground);
                     }
                     
-                    .refresh-button:active {
-                        background-color: var(--vscode-button-background);
-                    }
-                    
                     .auto-refresh-controls {
                         display: flex;
                         align-items: center;
-                        gap: 5px;
-                        margin-left: 10px;
+                        gap: 8px;
                     }
                     
                     .auto-refresh-controls label {
@@ -585,24 +476,97 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                     }
                     
                     .auto-refresh-controls input[type="number"] {
-                        width: 50px;
-                        padding: 3px 5px;
+                        width: 60px;
+                        padding: 4px 6px;
                         background-color: var(--vscode-input-background);
                         color: var(--vscode-input-foreground);
                         border: 1px solid var(--vscode-input-border);
-                        border-radius: 2px;
+                        border-radius: 3px;
                     }
                     
-                    .auto-refresh-controls input[type="checkbox"] {
-                        margin: 0;
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin-bottom: 20px;
+                    }
+                    
+                    th, td {
+                        text-align: left;
+                        padding: 12px 8px;
+                        border-bottom: 1px solid var(--vscode-panel-border);
+                    }
+                    
+                    th {
+                        background-color: var(--vscode-panelSectionHeader-background);
+                        font-weight: 600;
+                    }
+                    
+                    tr:hover {
+                        background-color: var(--vscode-list-hoverBackground);
+                    }
+                    
+                    .current-branch {
+                        font-weight: bold;
+                        color: var(--vscode-textLink-activeForeground);
+                    }
+                    
+                    .time {
+                        font-family: var(--vscode-editor-font-family);
+                        font-size: 0.95em;
+                        white-space: nowrap;
+                    }
+                    
+                    .percentage-bar {
+                        height: 6px;
+                        background-color: var(--vscode-progressBar-background);
+                        border-radius: 3px;
+                        margin-top: 4px;
+                        overflow: hidden;
+                    }
+                    
+                    .percentage-fill {
+                        height: 100%;
+                        background-color: var(--vscode-progressBar-background);
+                        border-radius: 3px;
+                        transition: width 0.3s ease;
+                    }
+                    
+                    .summary {
+                        margin-top: 20px;
+                        padding: 15px;
+                        background-color: var(--vscode-panel-background);
+                        border: 1px solid var(--vscode-panel-border);
+                        border-radius: 4px;
+                    }
+                    
+                    .summary p {
+                        margin: 8px 0;
                     }
                 </style>
             </head>
             <body>
                 <h1>Branch Time Tracker</h1>
                 <p class="version-info">Version ${extensionVersion}</p>
-                <div class="stats-container">
-                    <div class="refresh-controls">
+                
+                <div class="refresh-controls">
+                    <button id="refresh-button" class="refresh-button">
+                        🔄 Refresh Now
+                    </button>
+                    
+                    <div class="auto-refresh-controls">
+                        <label>
+                            <input type="checkbox" id="auto-refresh-toggle" ${autoRefreshEnabled ? 'checked' : ''}>
+                            Auto-refresh every
+                        </label>
+                        <input type="number" id="refresh-interval" min="1" max="60" value="${autoRefreshInterval / ONE_MINUTE}">
+                        <label>minutes</label>
+                    </div>
+                </div>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
                             <th>Branch</th>
                             <th>Time Spent</th>
                             <th>Percentage</th>
@@ -612,16 +576,15 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                         ${sortedBranches.map(([branch, time], index) => {
                             const isCurrent = branch === currentBranch;
                             const percentage = totalSeconds > 0 ? (time.seconds / totalSeconds) * 100 : 0;
-                            const formattedPercentage = percentage.toFixed(1);
                             return `
-                                <tr class="${isCurrent ? 'current-branch' : ''}">
+                                <tr ${isCurrent ? 'class="current-branch"' : ''}>
                                     <td>${index + 1}</td>
-                                    <td>${branch}${isCurrent ? ' (current)' : ''}</td>
+                                    <td>${escapeHtml(branch)}${isCurrent ? ' 👈 (current)' : ''}</td>
                                     <td class="time">${formatTime(time.seconds, true)}</td>
                                     <td>
-                                        ${formattedPercentage}%
+                                        ${percentage.toFixed(1)}%
                                         <div class="percentage-bar">
-                                            <div class="percentage-fill" style="width: ${percentage}%"></div>
+                                            <div class="percentage-fill" style="width: ${percentage}%; background-color: ${isCurrent ? 'var(--vscode-textLink-activeForeground)' : 'var(--vscode-progressBar-background)'}"></div>
                                         </div>
                                     </td>
                                 </tr>
@@ -631,15 +594,10 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                 </table>
 
                 <div class="summary">
-                    <p>Total time tracked: <strong>${formatTime(totalSeconds, true)}</strong></p>
-                    <p>Active branch: <strong>${currentBranch || 'None'}</strong></p>
-                    <p>Total branches: <strong>${branchTimes.size}</strong></p>
-                </div>
-            </div>
-        </body>
-                    <p>Total time tracked: <strong>${formatTime(totalSeconds, true)}</strong></p>
-                    <p>Active branch: <strong>${currentBranch || 'None'}</strong></p>
-                    <p>Total branches: <strong>${branchTimes.size}</strong></p>
+                    <p><strong>Summary:</strong></p>
+                    <p>📊 Total time tracked: <strong>${formatTime(totalSeconds, true)}</strong></p>
+                    <p>🌿 Active branch: <strong>${currentBranch || 'None'}</strong></p>
+                    <p>📈 Total branches: <strong>${branchTimes.size}</strong></p>
                 </div>
             </body>
             </html>
