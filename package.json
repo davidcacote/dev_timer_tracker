@@ -2,7 +2,7 @@
     "name": "branch-time-tracker",
     "displayName": "Branch Time Tracker",
     "description": "Track your coding time per git branch",
-    "version": "0.3.2",
+    "version": "0.3.3",
     "publisher": "davidcacote",
     "repository": {
         "type": "git",
@@ -54,7 +54,12 @@
         "test:unit": "jest",
         "test:watch": "jest --watch",
         "test:coverage": "jest --coverage",
-        "test:vscode": "node ./out/test/runTest.js"
+        "test:vscode": "node ./out/test/runTest.js",
+        "lint": "tslint src/**/*.ts",
+        "lint:fix": "tslint src/**/*.ts --fix",
+        "analyze": "npm run lint && npm run test:coverage",
+        "build:clean": "rm -rf out/ && npm run compile",
+        "build:full": "npm run build:clean && npm run vscode:package"
     },
     "devDependencies": {
         "@types/glob": "^7.1.3",
