@@ -30,17 +30,46 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
     let branchTimes: Map<string, BranchTime> = new Map();
     let workspaceFolder: vscode.WorkspaceFolder | undefined;
     let statusBarItem: vscode.StatusBarItem;
+    let statusBarHighlightTimeout: NodeJS.Timeout | null = null;
+    let gitHeadWatcher: vscode.FileSystemWatcher | null = null;
+    let isTrackingPaused: boolean = false;
 
     // Initialize branch times from storage
     function loadBranchTimes(): void {
         try {
             if (fs.existsSync(timerFile)) {
                 const data = fs.readFileSync(timerFile, 'utf8');
-                const savedTimes = JSON.parse(data) as Record<string, BranchTime>;
+                let savedTimes: any;
+                try {
+                    savedTimes = JSON.parse(data);
+                } catch (parseError) {
+                    throw new Error('Corrupted JSON');
+                }
+                // Validate structure: must be an object with { seconds: number, lastUpdated: string }
+                const isValid = savedTimes && typeof savedTimes === 'object' &&
+                    Object.values(savedTimes).every((v: any) =>
+                        v && typeof v.seconds === 'number' && typeof v.lastUpdated === 'string');
+                if (!isValid) {
+                    throw new Error('Invalid data structure');
+                }
                 branchTimes = new Map<string, BranchTime>(Object.entries(savedTimes));
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error loading branch times:', error);
+            vscode.window.showErrorMessage(
+                'Failed to load branch time data: ' + error.message + '. You may need to reset your branch time data.',
+                'Reset Data'
+            ).then(selection => {
+                if (selection === 'Reset Data') {
+                    try {
+                        fs.writeFileSync(timerFile, '{}', 'utf8');
+                        branchTimes = new Map();
+                        vscode.window.showInformationMessage('Branch time data has been reset.');
+                    } catch (resetError) {
+                        vscode.window.showErrorMessage('Failed to reset branch time data. Please check file permissions.');
+                    }
+                }
+            });
         }
     }
 
@@ -52,6 +81,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             fs.writeFileSync(timerFile, data, 'utf8');
         } catch (error) {
             console.error('Error saving branch times:', error);
+            vscode.window.showErrorMessage('Failed to save branch time data. Check your disk space and permissions.');
         }
     }
 
@@ -83,6 +113,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                     resolve(branch || 'main'); // Default to 'main' if empty
                 } else {
                     console.error('Error getting git branch:', errorOutput);
+                    vscode.window.showErrorMessage('Failed to get current git branch. Make sure this folder is a valid git repository.');
                     resolve(null);
                 }
             });
@@ -91,7 +122,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
 
     // Update time for current branch - FIXED LOGIC
     function updateBranchTime(): void {
-        if (!currentBranch) return;
+        if (!currentBranch || isTrackingPaused) return;
 
         const now = new Date();
         const branchTime = branchTimes.get(currentBranch) || {
@@ -109,6 +140,7 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             branchTimes.set(currentBranch, branchTime);
             saveBranchTimes();
         }
+        updateStatusBar(); // Ensure status bar is updated after time update
     }
 
     // Handle branch change
@@ -139,12 +171,26 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
                 saveBranchTimes();
             }
             
+            // Highlight status bar only (no notification)
+            if (statusBarItem) {
+                statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+                if (statusBarHighlightTimeout) clearTimeout(statusBarHighlightTimeout);
+                statusBarHighlightTimeout = setTimeout(() => {
+                    statusBarItem.backgroundColor = undefined;
+                }, 2000);
+            }
+            updateStatusBar(); // Ensure status bar is updated after branch change
             console.log(`Switched to branch: ${currentBranch}`);
         }
     }
 
     // Update status bar with time spent on current branch (without seconds)
     function updateStatusBar(): void {
+        const getStatusIcon = () => {
+            if (!workspaceFolder) return '$(error)';
+            if (!currentBranch) return '$(error)';
+            return isTrackingPaused ? '$(debug-pause)' : '$(watch)';
+        };
         if (!statusBarItem) {
             statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
             statusBarItem.command = 'branch-time-tracker.showStats';
@@ -152,26 +198,74 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             statusBarItem.show();
         }
 
+        if (!workspaceFolder) {
+            statusBarItem.text = '$(error) No workspace folder';
+            statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time.';
+            return;
+        }
+
         if (!currentBranch) {
-            statusBarItem.text = '$(watch) No active branch';
+            statusBarItem.text = '$(error) No active branch';
+            statusBarItem.tooltip = 'No active git branch detected.';
             return;
         }
 
         const branchTime = branchTimes.get(currentBranch);
         const timeSpent = branchTime ? branchTime.seconds : 0;
-        const formattedTime = formatTime(timeSpent, false);
+        const formattedTime = formatTime(timeSpent, false); // no seconds
+        const lastUpdated = branchTime ? formatLastUpdated(branchTime.lastUpdated) : 'N/A';
+
+        const icon = getStatusIcon();
+        const pauseStatus = isTrackingPaused ? '[PAUSED] ' : '';
+        statusBarItem.text = `${icon} ${pauseStatus}${formattedTime} on ${currentBranch}`;
+        statusBarItem.tooltip = `${isTrackingPaused ? '⏸️ Tracking Paused\n' : ''}Spent ${formattedTime} on branch "${currentBranch}"
+Last updated: ${lastUpdated}
+Click to ${isTrackingPaused ? 'resume' : 'pause'} tracking`;
+    }
+
+    // Format last updated timestamp for display
+    function formatLastUpdated(isoString: string): string {
+        try {
+            const date = new Date(isoString);
+            return date.toLocaleString();
+        } catch (error) {
+            return 'Unknown';
+        }
+    }
+
+    // Toggle pause/resume time tracking
+    async function togglePauseTracking(): Promise<void> {
+        isTrackingPaused = !isTrackingPaused;
         
-        // Show just the time with a clock icon (no seconds)
-        statusBarItem.text = `$(watch) ${formattedTime} on ${currentBranch}`;
-        statusBarItem.tooltip = `Spent ${formattedTime} on branch "${currentBranch}". Click for details.`;
+        // Save current time before pausing
+        if (isTrackingPaused) {
+            updateBranchTime();
+        } else {
+            // Update lastUpdated when resuming to avoid counting paused time
+            if (currentBranch) {
+                const branchTime = branchTimes.get(currentBranch);
+                if (branchTime) {
+                    branchTime.lastUpdated = new Date().toISOString();
+                    branchTimes.set(currentBranch, branchTime);
+                }
+            }
+        }
+        
+        // Save pause state
+        await context.globalState.update('branchTimeTracker.isPaused', isTrackingPaused);
+        updateStatusBar();
     }
 
     // Initialize extension
     async function initialize(): Promise<void> {
+        // Load pause state
+        isTrackingPaused = context.globalState.get<boolean>('branchTimeTracker.isPaused', false);
+
         // Create status bar item
         statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-        statusBarItem.command = 'branch-time-tracker.showStats';
+        statusBarItem.command = 'branch-time-tracker.togglePause';
         statusBarItem.text = '$(loading~spin) Loading branch time...';
+        statusBarItem.tooltip = 'Loading branch time data...';
         statusBarItem.show();
 
         workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -191,6 +285,9 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         await handleBranchChange();
         updateStatusBar();
 
+        // Set up git HEAD file watcher to detect branch changes
+        setupGitHeadWatcher();
+
         // Set up the auto-refresh timer if enabled
         setupAutoRefresh();
 
@@ -198,11 +295,16 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         vscode.workspace.onDidChangeWorkspaceFolders(async () => {
             workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (workspaceFolder) {
+                setupGitHeadWatcher();
                 await handleBranchChange();
                 updateStatusBar();
             } else {
                 statusBarItem.text = '$(error) No workspace folder';
                 statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time';
+                if (gitHeadWatcher) {
+                    gitHeadWatcher.dispose();
+                    gitHeadWatcher = null;
+                }
             }
         });
     }
@@ -359,6 +461,28 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         panel.onDidDispose(() => {
             messageDisposable.dispose();
             refreshDisposable.dispose();
+        });
+    }
+
+    // Set up file system watcher for .git/HEAD changes
+    function setupGitHeadWatcher(): void {
+        if (gitHeadWatcher) {
+            gitHeadWatcher.dispose();
+        }
+
+        if (!workspaceFolder) return;
+
+        const gitHeadPath = path.join(workspaceFolder.uri.fsPath, '.git', 'HEAD');
+        
+        gitHeadWatcher = vscode.workspace.createFileSystemWatcher(gitHeadPath);
+        gitHeadWatcher.onDidChange(async () => {
+            console.log('Git HEAD changed, updating branch...');
+            await handleBranchChange();
+        });
+
+        gitHeadWatcher.onDidCreate(async () => {
+            console.log('Git HEAD created, updating branch...');
+            await handleBranchChange();
         });
     }
 
@@ -606,7 +730,8 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
 
     // Register commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('branch-time-tracker.showStats', showBranchStats)
+        vscode.commands.registerCommand('branch-time-tracker.showStats', showBranchStats),
+        vscode.commands.registerCommand('branch-time-tracker.togglePause', togglePauseTracking)
     );
 
     // Initialize and set up event listeners
@@ -620,6 +745,14 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             if (currentTimer) {
                 clearInterval(currentTimer);
                 currentTimer = null;
+            }
+            if (gitHeadWatcher) {
+                gitHeadWatcher.dispose();
+                gitHeadWatcher = null;
+            }
+            if (statusBarHighlightTimeout) {
+                clearTimeout(statusBarHighlightTimeout);
+                statusBarHighlightTimeout = null;
             }
             updateBranchTime(); // Save final time update
             statusBarItem?.dispose();

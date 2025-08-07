@@ -24,6 +24,10 @@
             {
                 "command": "branch-time-tracker.showStats",
                 "title": "Show Branch Time Stats"
+            },
+            {
+                "command": "branch-time-tracker.togglePause",
+                "title": "Toggle Branch Time Tracking (Pause/Resume)"
             }
         ],
         "viewsContainers": {
