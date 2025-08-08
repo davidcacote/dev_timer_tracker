@@ -28,6 +28,14 @@
             {
                 "command": "branch-time-tracker.togglePause",
                 "title": "Toggle Branch Time Tracking (Pause/Resume)"
+            },
+            {
+                "command": "branch-time-tracker.exportData",
+                "title": "Export Branch Time Data"
+            },
+            {
+                "command": "branch-time-tracker.importData",
+                "title": "Import Branch Time Data"
             }
         ],
         "viewsContainers": {
