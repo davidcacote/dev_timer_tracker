@@ -2,7 +2,7 @@
 
 A VS Code extension that tracks time spent on different Git branches with a beautiful tab-based interface.
 
-**Current Version**: 0.3.2
+**Current Version**: 0.3.3
 
 ## Features
 
