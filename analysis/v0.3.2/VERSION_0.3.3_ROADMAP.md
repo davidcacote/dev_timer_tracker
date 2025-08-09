@@ -205,3 +205,6 @@
 - Advanced analytics and insights
 - Custom time tracking rules
 - Integration with time tracking APIs (Toggl, Harvest, etc.)
+- Separation of timers by project (multi-repository)
+- Aggregation of timers by IDE (total time for all branches across all projects)
+- Ongoing discussions and proposals can be found in the BrainStorming folder

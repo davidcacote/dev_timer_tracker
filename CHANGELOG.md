@@ -4,14 +4,35 @@ All notable changes to the Branch Time Tracker extension will be documented in t
 
 ## [Unreleased]
 
-### Planned for 0.3.3
+## [0.4.0] - Unreleased
 
-- Memory leak fixes in refreshCallbacks
+### Planned
+
+- Enhanced data export/import functionality with more formats (CSV, JSON)
+- Customizable time tracking presets and templates
+- Advanced filtering and search in statistics view
+- Project-specific time tracking configurations
+- Integration with popular time tracking services
+
+### In Progress
+
+- Refactoring core tracking engine for better performance
+- Improving test coverage for critical components
+
+
+## [0.3.3] - 2025-08-09
+
+### Added
+
 - Active branch change detection with file system watcher
-- Race condition prevention in async operations
 - Enhanced error handling and user feedback
-- Performance optimizations for timer management
 - Status bar UX improvements with loading states
+
+### Fixed
+
+- Memory leak in refreshCallbacks
+- Race conditions in async operations
+- Performance optimizations for timer management
 
 ## [0.3.2] - 2025-07-24
 

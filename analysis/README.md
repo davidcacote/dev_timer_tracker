@@ -125,6 +125,18 @@ When creating new analysis documents:
 - **Source Code**: [../src/](../src/)
 - **Package Configuration**: [../package.json](../package.json)
 
+## 💡 BrainStorming & Future Ideas
+
+Starting from version 0.3.3, all improvement discussions, ideas, and proposals for Branch Time Tracker will be organized in the new [../BrainStorming/](../BrainStorming/) folder.
+
+### Topics under discussion:
+- Separation of timers by project (multi-repository)
+- Aggregation of timers by IDE (total time for all branches across all open projects)
+- Better organization and visualization of tracking data
+- Other ideas and suggestions from the community
+
+> To contribute, add your ideas and discussions as Markdown files inside the BrainStorming folder.
+
 ---
 
 _Analysis documentation maintained by the development team_
