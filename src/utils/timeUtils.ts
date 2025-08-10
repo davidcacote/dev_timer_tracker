@@ -1,3 +1,5 @@
+import { BranchTime } from '../models';
+
 /**
  * Time utility functions
  */
@@ -85,4 +87,71 @@ export function millisecondsToSeconds(milliseconds: number): number {
  */
 export function secondsToMilliseconds(seconds: number): number {
     return seconds * 1000;
+}
+
+/**
+ * Calculate average session time for a branch
+ * @param totalSeconds Total time spent on branch
+ * @param sessionCount Number of sessions
+ * @returns Average session time in seconds
+ */
+export function calculateAverageSessionTime(totalSeconds: number, sessionCount: number): number {
+    if (sessionCount === 0) return 0;
+    return Math.floor(totalSeconds / sessionCount);
+}
+
+/**
+ * Update BranchTime with new session data
+ * @param branchTime Current branch time data
+ * @param sessionDuration Duration of the session in seconds
+ * @returns Updated BranchTime object
+ */
+export function updateBranchTimeWithSession(branchTime: BranchTime, sessionDuration: number): BranchTime {
+    const newTotalSeconds = branchTime.seconds + sessionDuration;
+    const newSessionCount = branchTime.sessionCount + 1;
+    const newAverageSessionTime = calculateAverageSessionTime(newTotalSeconds, newSessionCount);
+    
+    return {
+        ...branchTime,
+        seconds: newTotalSeconds,
+        sessionCount: newSessionCount,
+        averageSessionTime: newAverageSessionTime,
+        lastUpdated: getCurrentTimestamp()
+    };
+}
+
+/**
+ * Create a new BranchTime object with initial values
+ * @param initialSeconds Initial time in seconds (default: 0)
+ * @returns New BranchTime object
+ */
+export function createBranchTime(initialSeconds: number = 0): BranchTime {
+    return {
+        seconds: initialSeconds,
+        lastUpdated: getCurrentTimestamp(),
+        sessionCount: initialSeconds > 0 ? 1 : 0,
+        averageSessionTime: initialSeconds
+    };
+}
+
+/**
+ * Format session statistics for display
+ * @param branchTime BranchTime object
+ * @returns Formatted session statistics string
+ */
+export function formatSessionStatistics(branchTime: BranchTime): string {
+    const avgTime = formatTime(branchTime.averageSessionTime);
+    const sessionText = branchTime.sessionCount === 1 ? 'session' : 'sessions';
+    return `${branchTime.sessionCount} ${sessionText}, avg: ${avgTime}`;
+}
+
+/**
+ * Calculate time percentage relative to total
+ * @param branchSeconds Time for specific branch
+ * @param totalSeconds Total time across all branches
+ * @returns Percentage as number (0-100)
+ */
+export function calculateTimePercentage(branchSeconds: number, totalSeconds: number): number {
+    if (totalSeconds === 0) return 0;
+    return Math.round((branchSeconds / totalSeconds) * 100 * 100) / 100; // Round to 2 decimal places
 }
