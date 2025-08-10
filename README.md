@@ -55,6 +55,13 @@ This extension contributes the following settings:
 
 ## Version History
 
+### [0.3.3] - 2025-08-01
+
+- **Fixed**: Memory leak prevention and performance optimizations
+- **Fixed**: Real-time branch change detection improvements
+- **Fixed**: Enhanced error handling and user feedback
+- **Improved**: Race condition prevention in git operations
+
 ### [0.3.2] - 2025-07-24
 
 - **Fixed**: Improved error handling for git operations
@@ -99,22 +106,17 @@ For detailed changelog, see [CHANGELOG.md](./CHANGELOG.md).
 
 ## 🚀 Development Status
 
-### Current Version: 0.3.2
+### Current Version: 0.3.3
 
 - **Status**: Stable release
-- **Focus**: Bug fixes and performance improvements
-- **Last Updated**: July 24, 2025
-
-### Upcoming Version: 0.3.3
-
-- **Status**: In development
 - **Focus**: Critical bug fixes and UX improvements
-- **Planned Release**: August 2025
-- **Key Improvements**:
-  - Memory leak fixes
-  - Active branch change detection
-  - Race condition prevention
-  - Enhanced error handling
+- **Last Updated**: August 1, 2025
+
+### Previous Version: 0.3.2
+
+- **Status**: Previous stable release
+- **Focus**: Bug fixes and performance improvements
+- **Released**: July 24, 2025
 
 For detailed development roadmap, see [v0.3.3 Roadmap](./analysis/v0.3.2/VERSION_0.3.3_ROADMAP.md).
 
@@ -198,20 +200,24 @@ To install a local build in VS Code:
 ## Known Issues
 
 - Time tracking is not 100% accurate for very fast branch switches
-- Memory usage may increase over time (will be fixed in v0.3.3)
-- Branch changes outside VS Code may not be detected immediately (will be fixed in v0.3.3)
-- Some git operations may fail silently (will be improved in v0.3.3)
 
-### Planned Fixes (v0.3.3)
+### Recent Fixes (v0.3.3)
 
-- Memory leak prevention
-- Real-time branch change detection
-- Enhanced error handling and user feedback
-- Performance optimizations
+- ✅ Memory leak prevention
+- ✅ Real-time branch change detection
+- ✅ Enhanced error handling and user feedback
+- ✅ Performance optimizations
 
 ## Release Notes
 
-### 0.3.2 (Latest)
+### 0.3.3 (Latest)
+
+- Memory leak prevention and performance optimizations
+- Real-time branch change detection improvements
+- Enhanced error handling and user feedback
+- Race condition prevention in git operations
+
+### 0.3.2
 
 - Improved error handling for git operations
 - Fixed potential memory leaks in the statistics view
