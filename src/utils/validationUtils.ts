@@ -25,6 +25,15 @@ export function isValidBranchTime(data: any): data is BranchTime {
 }
 
 /**
+ * Validate BranchTime data (alias for isValidBranchTime for consistency)
+ * @param data Data to validate
+ * @returns True if valid
+ */
+export function validateBranchTimeData(data: any): boolean {
+    return isValidBranchTime(data);
+}
+
+/**
  * Validate TrackingPreset object
  * @param data Data to validate
  * @returns Validation result
@@ -150,6 +159,86 @@ export function sanitizeBranchName(branchName: string): string {
         .replace(/[\x00-\x1f\x7f]/g, '') // Remove control characters
         .trim()
         .substring(0, 255); // Limit length
+}
+
+/**
+ * Validate settings object (global or workspace)
+ * @param settings Settings to validate
+ * @returns Validation result
+ */
+export function validateSettings(settings: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!settings || typeof settings !== 'object') {
+        errors.push('Settings must be an object');
+        return { isValid: false, errors };
+    }
+
+    // Validate global settings properties
+    if (settings.updateInterval !== undefined) {
+        if (typeof settings.updateInterval !== 'number' || settings.updateInterval <= 0) {
+            errors.push('Update interval must be a positive number');
+        }
+    }
+
+    if (settings.autoRefreshEnabled !== undefined) {
+        if (typeof settings.autoRefreshEnabled !== 'boolean') {
+            errors.push('Auto refresh enabled must be a boolean');
+        }
+    }
+
+    if (settings.defaultExportFormat !== undefined) {
+        if (!['csv', 'json'].includes(settings.defaultExportFormat)) {
+            errors.push('Default export format must be "csv" or "json"');
+        }
+    }
+
+    if (settings.backupEnabled !== undefined) {
+        if (typeof settings.backupEnabled !== 'boolean') {
+            errors.push('Backup enabled must be a boolean');
+        }
+    }
+
+    if (settings.maxBackups !== undefined) {
+        if (typeof settings.maxBackups !== 'number' || settings.maxBackups < 0) {
+            errors.push('Max backups must be a non-negative number');
+        }
+    }
+
+    if (settings.theme !== undefined) {
+        if (!['auto', 'light', 'dark'].includes(settings.theme)) {
+            errors.push('Theme must be "auto", "light", or "dark"');
+        }
+    }
+
+    // Validate workspace-specific properties
+    if (settings.workspaceId !== undefined) {
+        if (typeof settings.workspaceId !== 'string' || settings.workspaceId.trim().length === 0) {
+            errors.push('Workspace ID must be a non-empty string');
+        }
+    }
+
+    if (settings.projectName !== undefined) {
+        if (typeof settings.projectName !== 'string') {
+            errors.push('Project name must be a string');
+        }
+    }
+
+    if (settings.customPresets !== undefined) {
+        if (!Array.isArray(settings.customPresets)) {
+            errors.push('Custom presets must be an array');
+        } else if (!settings.customPresets.every((id: any) => typeof id === 'string')) {
+            errors.push('Custom preset IDs must be strings');
+        }
+    }
+
+    if (settings.trackingEnabled !== undefined) {
+        if (typeof settings.trackingEnabled !== 'boolean') {
+            errors.push('Tracking enabled must be a boolean');
+        }
+    }
+
+    return { isValid: errors.length === 0, errors };
 }
 
 /**
