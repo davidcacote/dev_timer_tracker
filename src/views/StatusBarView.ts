@@ -85,7 +85,7 @@ export interface StatusBarTheme {
  * Enhanced status bar view implementation with improved UX
  */
 export class StatusBarView implements IStatusBarView {
-    private statusBarItem: vscode.StatusBarItem;
+    private statusBarItem: vscode.StatusBarItem | null = null;
     private config: StatusBarConfig;
     private theme: StatusBarTheme;
     private highlightTimeout: NodeJS.Timeout | null = null;
@@ -93,16 +93,21 @@ export class StatusBarView implements IStatusBarView {
     private lastUpdateData: StatusBarData | null = null;
     private clickHandler: (() => void) | null = null;
 
-    constructor(config: StatusBarConfig, theme?: StatusBarTheme) {
-        this.config = config;
-        this.theme = theme || {};
-        
+    constructor(config?: StatusBarConfig, theme?: StatusBarTheme) {
+        this.config = config || DEFAULT_STATUS_BAR_CONFIG;
+        this.theme = theme || DEFAULT_STATUS_BAR_THEME;
+    }
+
+    /**
+     * Initialize the status bar view
+     */
+    async initialize(): Promise<void> {
         this.statusBarItem = vscode.window.createStatusBarItem(
-            config.alignment,
-            config.priority
+            this.config.alignment,
+            this.config.priority
         );
         
-        this.statusBarItem.command = config.command;
+        this.statusBarItem.command = this.config.command;
         this.setupInitialState();
     }
 
@@ -110,8 +115,17 @@ export class StatusBarView implements IStatusBarView {
      * Set up initial status bar state
      */
     private setupInitialState(): void {
+        if (!this.statusBarItem) return;
+        
         this.statusBarItem.backgroundColor = this.theme.normalBackground;
         this.statusBarItem.show();
+    }
+
+    /**
+     * Highlight status bar for branch changes
+     */
+    highlightBranchChange(): void {
+        this.highlight(2000);
     }
 
     /**
@@ -164,6 +178,8 @@ export class StatusBarView implements IStatusBarView {
      * Show loading state implementation
      */
     private showLoadingState(): void {
+        if (!this.statusBarItem) return;
+        
         this.statusBarItem.text = '$(loading~spin) Loading branch time...';
         this.statusBarItem.tooltip = 'Loading branch time data...';
         this.statusBarItem.backgroundColor = this.theme.normalBackground;
@@ -180,6 +196,8 @@ export class StatusBarView implements IStatusBarView {
      * Show error state implementation
      */
     private showErrorState(message: string): void {
+        if (!this.statusBarItem) return;
+        
         const icon = '$(error)';
         this.statusBarItem.text = `${icon} ${message}`;
         this.statusBarItem.tooltip = `Error: ${message}\nClick for more details`;
@@ -190,6 +208,8 @@ export class StatusBarView implements IStatusBarView {
      * Show normal tracking state
      */
     private showNormalState(data: StatusBarData): void {
+        if (!this.statusBarItem) return;
+        
         if (!data.currentBranch) {
             this.statusBarItem.text = '$(error) No active branch';
             this.statusBarItem.tooltip = 'No active git branch detected.';
@@ -251,14 +271,18 @@ export class StatusBarView implements IStatusBarView {
      * Show the status bar item
      */
     public show(): void {
-        this.statusBarItem.show();
+        if (this.statusBarItem) {
+            this.statusBarItem.show();
+        }
     }
 
     /**
      * Hide the status bar item
      */
     public hide(): void {
-        this.statusBarItem.hide();
+        if (this.statusBarItem) {
+            this.statusBarItem.hide();
+        }
     }
 
     /**
@@ -274,6 +298,8 @@ export class StatusBarView implements IStatusBarView {
      * Highlight status bar temporarily
      */
     public highlight(duration: number = 2000): void {
+        if (!this.statusBarItem) return;
+        
         // Clear any existing highlight
         if (this.highlightTimeout) {
             clearTimeout(this.highlightTimeout);
@@ -285,7 +311,9 @@ export class StatusBarView implements IStatusBarView {
 
         // Remove highlight after duration
         this.highlightTimeout = setTimeout(() => {
-            this.statusBarItem.backgroundColor = this.theme.normalBackground;
+            if (this.statusBarItem) {
+                this.statusBarItem.backgroundColor = this.theme.normalBackground;
+            }
             this.highlightTimeout = null;
         }, duration);
     }
@@ -304,7 +332,10 @@ export class StatusBarView implements IStatusBarView {
             this.updateDebounceTimeout = null;
         }
 
-        this.statusBarItem.dispose();
+        if (this.statusBarItem) {
+            this.statusBarItem.dispose();
+            this.statusBarItem = null;
+        }
     }
 }
 

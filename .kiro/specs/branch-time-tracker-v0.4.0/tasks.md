@@ -134,40 +134,56 @@
     - Implement settings import/export functionality
     - _Requirements: 2.3, 4.2, 6.2_
 
-- [ ] 8. Implement advanced statistics and analytics
+- [x] 8. Refactor main extension.ts to use new service architecture
 
-  - [ ] 8.1 Create enhanced statistics calculation engine
+  - [x] 8.1 Create service container and dependency injection
+
+    - Implement service container for managing service instances
+    - Create dependency injection system for services
+    - Add service lifecycle management (initialization, disposal)
+    - _Requirements: 5.5, 6.5_
+
+  - [x] 8.2 Integrate all services into main extension
+    - Replace monolithic extension.ts with service-based architecture
+    - Wire up all services (Git, Storage, Timer, Tracking, Configuration)
+    - Implement proper error handling and service communication
+    - Add extension activation and deactivation handling
+    - _Requirements: 5.5, 6.5_
+
+- [ ] 9. Implement advanced statistics and analytics
+
+  - [x] 9.1 Create enhanced statistics calculation engine
 
     - Implement advanced metrics like session averages and switching frequency
     - Add time-based analytics with period comparisons
     - Create branch activity patterns and insights
     - _Requirements: 3.2, 3.3_
 
-  - [ ] 8.2 Add filtering and search capabilities
+  - [x] 9.2 Add filtering and search capabilities
     - Implement real-time branch name filtering with pattern matching
     - Add date range filtering with calendar controls
     - Create time threshold filtering for branch visibility
     - Implement sorting options for different metrics
     - _Requirements: 3.1, 3.4, 3.5_
 
-- [ ] 9. Add comprehensive error handling and recovery
+- [ ] 10. Add comprehensive error handling and recovery
 
-  - [ ] 9.1 Implement error recovery strategies
+  - [x] 10.1 Implement error recovery strategies
 
     - Create error classification and recovery mechanisms
     - Add automatic retry logic with exponential backoff
     - Implement graceful degradation for service failures
     - _Requirements: 5.3, 5.4, 6.3_
 
-  - [ ] 9.2 Add user-friendly error reporting
+  - [ ] 10.2 Add user-friendly error reporting
     - Create clear error messages with actionable suggestions
     - Implement error logging and diagnostic information
     - Add error recovery UI with user guidance
     - _Requirements: 6.3, 6.4_
 
-- [ ] 10. Create comprehensive test suite
+- [ ] 11. Create comprehensive test suite
 
-  - [ ] 10.1 Implement unit tests for core services
+  - [ ] 11.1 Implement unit tests for core services
 
     - Create tests for StorageService with mock file system
     - Add tests for GitService with mock git operations
@@ -175,7 +191,7 @@
     - Create ConfigurationManager tests with mock VS Code API
     - _Requirements: 5.1, 5.2, 5.3_
 
-  - [ ] 10.2 Add integration tests for main workflows
+  - [ ] 11.2 Add integration tests for main workflows
 
     - Create end-to-end tests for branch switching scenarios
     - Add tests for export/import functionality with sample data
@@ -183,30 +199,30 @@
     - Create webview interaction tests
     - _Requirements: 1.6, 2.5, 4.5_
 
-  - [ ] 10.3 Implement performance and memory tests
+  - [ ] 11.3 Implement performance and memory tests
     - Create memory usage monitoring tests
     - Add response time validation for UI operations
     - Implement load testing with large datasets
     - _Requirements: 5.1, 5.2, 6.1_
 
-- [ ] 11. Implement data migration and backward compatibility
+- [ ] 12. Implement data migration and backward compatibility
 
-  - [ ] 11.1 Create migration system for existing data
+  - [ ] 12.1 Create migration system for existing data
 
     - Implement data format migration from v0.3.3 to v0.4.0
     - Add migration validation and rollback capabilities
     - Create migration progress reporting and error handling
     - _Requirements: 7.4, 7.5_
 
-  - [ ] 11.2 Add backward compatibility support
+  - [ ] 12.2 Add backward compatibility support
     - Implement support for reading old data formats
     - Create compatibility layer for existing configurations
     - Add graceful handling of missing or invalid data
     - _Requirements: 7.4, 7.5_
 
-- [ ] 12. Performance optimization and final integration
+- [ ] 13. Performance optimization and final polish
 
-  - [ ] 12.1 Optimize memory usage and performance
+  - [ ] 13.1 Optimize memory usage and performance
 
     - Implement lazy loading for branch data
     - Add data cleanup and garbage collection
@@ -214,15 +230,7 @@
     - Create efficient event listener management
     - _Requirements: 5.1, 5.2, 6.1_
 
-  - [x] 12.2 Final integration and extension refactoring
-
-    - Refactor main extension.ts to use new service architecture
-    - Integrate all services and components into cohesive system
-    - Add proper dependency injection and service lifecycle management
-    - Create extension activation and deactivation handling
-    - _Requirements: 5.5, 6.5_
-
-  - [ ] 12.3 Add final polish and documentation
+  - [ ] 13.2 Add final polish and documentation
     - Update package.json with new commands and configurations
     - Create comprehensive inline code documentation
     - Add user-facing documentation for new features

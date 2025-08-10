@@ -5,8 +5,9 @@ import { Settings, TrackingPreset } from "../models";
  * Settings panel interface
  */
 export interface ISettingsPanel {
+  initialize(): Promise<void>;
   show(): Promise<void>;
-  updateSettings(settings: Settings): void;
+  updateSettings(settings: any): void;
   updatePresets(presets: TrackingPreset[]): void;
   onSettingsChange(
     handler: (settings: Partial<Settings>) => void
@@ -73,10 +74,15 @@ export class SettingsPanel implements ISettingsPanel {
   private presetOperationEmitter = new vscode.EventEmitter<PresetOperation>();
 
   constructor(
-    config: SettingsPanelConfig,
-    private context?: vscode.ExtensionContext
+    private context: vscode.ExtensionContext,
+    config?: SettingsPanelConfig
   ) {
-    this.config = config;
+    this.config = config || DEFAULT_SETTINGS_PANEL_CONFIG;
+  }
+
+  public async initialize(): Promise<void> {
+    // Settings panel initialization is done when show() is called
+    // This method is here for consistency with other views
   }
 
   public async show(): Promise<void> {
@@ -99,7 +105,7 @@ export class SettingsPanel implements ISettingsPanel {
     this.updateWebviewContent();
   }
 
-  public updateSettings(settings: Settings): void {
+  public updateSettings(settings: any): void {
     this.currentSettings = settings;
     this.updateWebviewContent();
   }

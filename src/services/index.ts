@@ -6,3 +6,6 @@ export * from './TrackingEngine';
 export * from './ConfigurationManager';
 export * from './ExportImportService';
 export * from './BackupManager';
+
+// Service container and dependency injection
+export * from './ServiceContainer';

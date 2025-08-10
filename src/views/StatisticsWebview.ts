@@ -7,6 +7,11 @@ import { formatTime, formatLastUpdated } from '../utils';
  */
 export interface IStatisticsWebview {
     /**
+     * Initialize the webview
+     */
+    initialize(): Promise<void>;
+
+    /**
      * Show the webview panel
      */
     show(): Promise<void>;
@@ -15,7 +20,7 @@ export interface IStatisticsWebview {
      * Update webview with new data
      * @param data Statistics data
      */
-    update(data: StatisticsData): void;
+    updateData(data: any): void;
 
     /**
      * Apply filters to the display
@@ -38,6 +43,12 @@ export interface IStatisticsWebview {
      * @returns True if visible
      */
     isVisible(): boolean;
+
+    /**
+     * Get current filters
+     * @returns Current filters
+     */
+    getCurrentFilters(): StatisticsFilters;
 
     /**
      * Dispose of resources
@@ -103,14 +114,22 @@ export class StatisticsWebview implements IStatisticsWebview {
     private disposables: vscode.Disposable[] = [];
 
     constructor(
-        config: WebviewConfig,
-        theme?: WebviewTheme,
-        private context?: vscode.ExtensionContext
+        private context: vscode.ExtensionContext,
+        config?: WebviewConfig,
+        theme?: WebviewTheme
     ) {
-        this.config = config;
+        this.config = config || DEFAULT_WEBVIEW_CONFIG;
         this.theme = theme || DEFAULT_WEBVIEW_THEME;
         this.currentFilters = createDefaultFilters();
         this.setupMessageHandlers();
+    }
+
+    /**
+     * Initialize the webview
+     */
+    async initialize(): Promise<void> {
+        // Webview initialization is done when show() is called
+        // This method is here for consistency with other views
     }
 
     /**
@@ -140,7 +159,7 @@ export class StatisticsWebview implements IStatisticsWebview {
     /**
      * Update webview with new data
      */
-    public update(data: StatisticsData): void {
+    public updateData(data: any): void {
         this.currentData = data;
         this.updateWebviewContent();
     }
@@ -173,6 +192,13 @@ export class StatisticsWebview implements IStatisticsWebview {
      */
     public isVisible(): boolean {
         return this.panel?.visible ?? false;
+    }
+
+    /**
+     * Get current filters
+     */
+    public getCurrentFilters(): StatisticsFilters {
+        return { ...this.currentFilters };
     }
 
     /**

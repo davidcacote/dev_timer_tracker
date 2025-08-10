@@ -1,946 +1,603 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import { spawn, ChildProcess } from 'child_process';
+import { 
+    ServiceContainer, 
+    IServiceContainer, 
+    ServiceType,
+    ITrackingEngine,
+    IConfigurationManager,
+    IGitService,
+    IStorageService
+} from './services';
+import { createDefaultFilters } from './models/StatisticsFilters';
+import { StatusBarView } from './views/StatusBarView';
+import { StatisticsWebview } from './views/StatisticsWebview';
+import { SettingsPanel } from './views/SettingsPanel';
+import { TrackingState } from './services/TrackingEngine';
+import { StatusBarData } from './models';
 
-const ONE_SECOND = 1000;
-const ONE_MINUTE = 60 * ONE_SECOND;
-const DEFAULT_UPDATE_INTERVAL = 2 * ONE_MINUTE; // 2 minutes
-
-// Export types for testing
-export interface BranchTime {
-    seconds: number;
-    lastUpdated: string;
-}
-
+/**
+ * Extension interface for testing and external access
+ */
 export interface BranchTimeTrackerExtension {
-    updateBranchTime: () => void;
-    updateStatusBar: () => void;
-    dispose: () => void;
+    /**
+     * Get the service container
+     */
+    getServiceContainer(): IServiceContainer;
+
+    /**
+     * Get current tracking state
+     */
+    getTrackingState(): TrackingState;
+
+    /**
+     * Force update current branch time
+     */
+    updateBranchTime(): void;
+
+    /**
+     * Update status bar display
+     */
+    updateStatusBar(): void;
+
+    /**
+     * Dispose extension resources
+     */
+    dispose(): void;
 }
 
-export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExtension {
-    const storagePath = context.globalStoragePath;
-    const timerFile = path.join(storagePath, 'branch-timers.json');
-    let currentBranch: string | null = null;
-    let currentTimer: NodeJS.Timeout | null = null;
-    let autoRefreshEnabled = true; // Enabled by default
-    let autoRefreshInterval = 2 * ONE_MINUTE; // Default 2 minutes
-    let refreshCallbacks: Array<() => void> = [];
-    let branchTimes: Map<string, BranchTime> = new Map();
-    let workspaceFolder: vscode.WorkspaceFolder | undefined;
-    let statusBarItem: vscode.StatusBarItem;
-    let statusBarHighlightTimeout: NodeJS.Timeout | null = null;
-    let gitHeadWatcher: vscode.FileSystemWatcher | null = null;
-    let isTrackingPaused: boolean = false;
+/**
+ * Extension state
+ */
+interface ExtensionState {
+    serviceContainer: IServiceContainer;
+    statusBarView: StatusBarView;
+    statisticsWebview: StatisticsWebview | null;
+    settingsPanel: SettingsPanel | null;
+    disposables: vscode.Disposable[];
+    isActivated: boolean;
+}
 
-    // Initialize branch times from storage
-    function loadBranchTimes(): void {
-        try {
-            if (fs.existsSync(timerFile)) {
-                const data = fs.readFileSync(timerFile, 'utf8');
-                let savedTimes: any;
-                try {
-                    savedTimes = JSON.parse(data);
-                } catch (parseError) {
-                    throw new Error('Corrupted JSON');
-                }
-                // Validate structure: must be an object with { seconds: number, lastUpdated: string }
-                const isValid = savedTimes && typeof savedTimes === 'object' &&
-                    Object.values(savedTimes).every((v: any) =>
-                        v && typeof v.seconds === 'number' && typeof v.lastUpdated === 'string');
-                if (!isValid) {
-                    throw new Error('Invalid data structure');
-                }
-                branchTimes = new Map<string, BranchTime>(Object.entries(savedTimes));
-            }
-        } catch (error: any) {
-            console.error('Error loading branch times:', error);
-            vscode.window.showErrorMessage(
-                'Failed to load branch time data: ' + error.message + '. You may need to reset your branch time data.',
-                'Reset Data'
-            ).then(selection => {
-                if (selection === 'Reset Data') {
-                    try {
-                        fs.writeFileSync(timerFile, '{}', 'utf8');
-                        branchTimes = new Map();
-                        vscode.window.showInformationMessage('Branch time data has been reset.');
-                    } catch (resetError) {
-                        vscode.window.showErrorMessage('Failed to reset branch time data. Please check file permissions.');
-                    }
-                }
-            });
-        }
-    }
+let extensionState: ExtensionState | null = null;
 
-    // Save branch times to storage
-    function saveBranchTimes(): void {
-        try {
-            const data = JSON.stringify(Object.fromEntries(branchTimes), null, 2);
-            fs.mkdirSync(path.dirname(timerFile), { recursive: true });
-            fs.writeFileSync(timerFile, data, 'utf8');
-        } catch (error) {
-            console.error('Error saving branch times:', error);
-            vscode.window.showErrorMessage('Failed to save branch time data. Check your disk space and permissions.');
-        }
-    }
+/**
+ * Activate the extension
+ */
+export async function activate(context: vscode.ExtensionContext): Promise<BranchTimeTrackerExtension> {
+    console.log('Branch Time Tracker v0.4.0 activating...');
 
-    // Get current git branch
-    async function getCurrentGitBranch(): Promise<string | null> {
-        if (!workspaceFolder) {
-            return null;
-        }
+    try {
+        // Initialize service container
+        const serviceContainer = new ServiceContainer();
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        
+        await serviceContainer.initialize(context, workspaceFolder);
 
-        return new Promise((resolve) => {
-            const gitProcess = spawn('git', ['branch', '--show-current'], {
-                cwd: workspaceFolder!.uri.fsPath
-            });
+        // Create UI components
+        const statusBarView = new StatusBarView();
+        const statisticsWebview = new StatisticsWebview(context);
+        const settingsPanel = new SettingsPanel(context);
 
-            let output = '';
-            let errorOutput = '';
-
-            gitProcess.stdout?.on('data', (data: Buffer) => {
-                output += data.toString();
-            });
-
-            gitProcess.stderr?.on('data', (data: Buffer) => {
-                errorOutput += data.toString();
-            });
-
-            gitProcess.on('close', (code: number | null) => {
-                if (code === 0) {
-                    const branch = output.trim();
-                    resolve(branch || 'main'); // Default to 'main' if empty
-                } else {
-                    console.error('Error getting git branch:', errorOutput);
-                    vscode.window.showErrorMessage('Failed to get current git branch. Make sure this folder is a valid git repository.');
-                    resolve(null);
-                }
-            });
-        });
-    }
-
-    // Update time for current branch - FIXED LOGIC
-    function updateBranchTime(): void {
-        if (!currentBranch || isTrackingPaused) return;
-
-        const now = new Date();
-        const branchTime = branchTimes.get(currentBranch) || {
-            seconds: 0,
-            lastUpdated: now.toISOString()
+        // Initialize extension state
+        extensionState = {
+            serviceContainer,
+            statusBarView,
+            statisticsWebview,
+            settingsPanel,
+            disposables: [],
+            isActivated: false
         };
 
-        const lastUpdate = new Date(branchTime.lastUpdated);
-        const secondsElapsed = Math.floor((now.getTime() - lastUpdate.getTime()) / 1000);
+        // Set up extension
+        await setupExtension(context, extensionState);
+
+        console.log('Branch Time Tracker v0.4.0 activated successfully');
+
+        return createExtensionAPI(extensionState);
+
+    } catch (error) {
+        console.error('Failed to activate Branch Time Tracker:', error);
         
-        // Only update if time has actually passed (avoid unnecessary updates)
-        if (secondsElapsed > 0) {
-            branchTime.seconds += secondsElapsed;
-            branchTime.lastUpdated = now.toISOString();
-            branchTimes.set(currentBranch, branchTime);
-            saveBranchTimes();
-        }
-        updateStatusBar(); // Ensure status bar is updated after time update
-    }
-
-    // Handle branch change
-    async function handleBranchChange(): Promise<void> {
-        const newBranch = await getCurrentGitBranch();
-        
-        if (newBranch && newBranch !== currentBranch) {
-            // Update time for previous branch
-            if (currentBranch) {
-                updateBranchTime();
-            }
-            
-            // Switch to new branch
-            currentBranch = newBranch;
-            
-            // Initialize branch time if it doesn't exist
-            if (!branchTimes.has(currentBranch)) {
-                branchTimes.set(currentBranch, {
-                    seconds: 0,
-                    lastUpdated: new Date().toISOString()
-                });
-                saveBranchTimes();
-            } else {
-                // Update lastUpdated to current time when switching to existing branch
-                const branchTime = branchTimes.get(currentBranch)!;
-                branchTime.lastUpdated = new Date().toISOString();
-                branchTimes.set(currentBranch, branchTime);
-                saveBranchTimes();
-            }
-            
-            // Highlight status bar only (no notification)
-            if (statusBarItem) {
-                statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-                if (statusBarHighlightTimeout) clearTimeout(statusBarHighlightTimeout);
-                statusBarHighlightTimeout = setTimeout(() => {
-                    statusBarItem.backgroundColor = undefined;
-                }, 2000);
-            }
-            updateStatusBar(); // Ensure status bar is updated after branch change
-            console.log(`Switched to branch: ${currentBranch}`);
-        }
-    }
-
-    // Update status bar with time spent on current branch (without seconds)
-    function updateStatusBar(): void {
-        const getStatusIcon = () => {
-            if (!workspaceFolder) return '$(error)';
-            if (!currentBranch) return '$(error)';
-            return isTrackingPaused ? '$(debug-pause)' : '$(watch)';
-        };
-        if (!statusBarItem) {
-            statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-            statusBarItem.command = 'branch-time-tracker.showStats';
-            statusBarItem.tooltip = 'Click to view branch time statistics';
-            statusBarItem.show();
+        // Clean up on activation failure
+        if (extensionState) {
+            cleanupExtension(extensionState);
+            extensionState = null;
         }
 
-        if (!workspaceFolder) {
-            statusBarItem.text = '$(error) No workspace folder';
-            statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time.';
-            return;
-        }
-
-        if (!currentBranch) {
-            statusBarItem.text = '$(error) No active branch';
-            statusBarItem.tooltip = 'No active git branch detected.';
-            return;
-        }
-
-        const branchTime = branchTimes.get(currentBranch);
-        const timeSpent = branchTime ? branchTime.seconds : 0;
-        const formattedTime = formatTime(timeSpent, false); // no seconds
-        const lastUpdated = branchTime ? formatLastUpdated(branchTime.lastUpdated) : 'N/A';
-
-        const icon = getStatusIcon();
-        const pauseStatus = isTrackingPaused ? '[PAUSED] ' : '';
-        statusBarItem.text = `${icon} ${pauseStatus}${formattedTime} on ${currentBranch}`;
-        statusBarItem.tooltip = `${isTrackingPaused ? '⏸️ Tracking Paused\n' : ''}Spent ${formattedTime} on branch "${currentBranch}"
-Last updated: ${lastUpdated}
-Click for detailed statistics`;
-    }
-
-    // Format last updated timestamp for display
-    function formatLastUpdated(isoString: string): string {
-        try {
-            const date = new Date(isoString);
-            return date.toLocaleString();
-        } catch (error) {
-            return 'Unknown';
-        }
-    }
-
-    // Export branch time data
-    async function exportBranchData(): Promise<void> {
-        try {
-            // Prepare export data
-            const exportData = {
-                version: '1.0',
-                exportedAt: new Date().toISOString(),
-                branchTimes: Object.fromEntries(branchTimes),
-                settings: {
-                    autoRefreshEnabled,
-                    autoRefreshInterval: autoRefreshInterval / ONE_MINUTE,
-                    isTrackingPaused
-                }
-            };
-
-            // Show save dialog
-            const uri = await vscode.window.showSaveDialog({
-                filters: {
-                    'JSON Files': ['json']
-                }
-            });
-
-            if (uri) {
-                const jsonData = JSON.stringify(exportData, null, 2);
-                await vscode.workspace.fs.writeFile(uri, Buffer.from(jsonData, 'utf8'));
-                vscode.window.showInformationMessage(`Branch time data exported to ${uri.fsPath}`);
-            }
-        } catch (error) {
-            console.error('Error exporting data:', error);
-            vscode.window.showErrorMessage('Failed to export branch time data.');
-        }
-    }
-
-    // Import branch time data
-    async function importBranchData(): Promise<void> {
-        try {
-            // Show open dialog
-            const uris = await vscode.window.showOpenDialog({
-                canSelectFiles: true,
-                canSelectFolders: false,
-                canSelectMany: false,
-                filters: {
-                    'JSON Files': ['json']
-                }
-            });
-
-            if (!uris || uris.length === 0) return;
-
-            const uri = uris[0];
-            const fileData = await vscode.workspace.fs.readFile(uri);
-            const jsonData = fileData.toString();
-            
-            let importData: any;
-            try {
-                importData = JSON.parse(jsonData);
-            } catch (parseError) {
-                throw new Error('Invalid JSON file');
-            }
-
-            // Validate data structure
-            if (!importData.branchTimes || typeof importData.branchTimes !== 'object') {
-                throw new Error('Invalid data format: missing branchTimes');
-            }
-
-            // Show confirmation dialog
-            const action = await vscode.window.showWarningMessage(
-                'This will replace your current branch time data. Are you sure?',
-                { modal: true },
-                'Replace Data',
-                'Cancel'
-            );
-
-            if (action === 'Replace Data') {
-                // Import branch times
-                branchTimes = new Map(Object.entries(importData.branchTimes));
-                
-                // Import settings if available
-                if (importData.settings) {
-                    autoRefreshEnabled = importData.settings.autoRefreshEnabled ?? autoRefreshEnabled;
-                    autoRefreshInterval = (importData.settings.autoRefreshInterval ?? 2) * ONE_MINUTE;
-                    isTrackingPaused = importData.settings.isTrackingPaused ?? isTrackingPaused;
-                    
-                    // Save settings
-                    await context.globalState.update('branchTimeTracker.autoRefreshEnabled', autoRefreshEnabled);
-                    await context.globalState.update('branchTimeTracker.autoRefreshInterval', autoRefreshInterval / ONE_MINUTE);
-                    await context.globalState.update('branchTimeTracker.isPaused', isTrackingPaused);
-                }
-
-                // Save imported data
-                saveBranchTimes();
-                
-                // Update UI
-                updateStatusBar();
-                setupAutoRefresh();
-                
-                vscode.window.showInformationMessage('Branch time data imported successfully.');
-            }
-        } catch (error: any) {
-            console.error('Error importing data:', error);
-            vscode.window.showErrorMessage(`Failed to import branch time data: ${error.message || 'Unknown error'}`);
-        }
-    }
-
-    // Toggle pause/resume time tracking
-    async function togglePauseTracking(): Promise<void> {
-        isTrackingPaused = !isTrackingPaused;
-        
-        // Save current time before pausing
-        if (isTrackingPaused) {
-            updateBranchTime();
-        } else {
-            // Update lastUpdated when resuming to avoid counting paused time
-            if (currentBranch) {
-                const branchTime = branchTimes.get(currentBranch);
-                if (branchTime) {
-                    branchTime.lastUpdated = new Date().toISOString();
-                    branchTimes.set(currentBranch, branchTime);
-                }
-            }
-        }
-        
-        // Save pause state
-        await context.globalState.update('branchTimeTracker.isPaused', isTrackingPaused);
-        updateStatusBar();
-    }
-
-    // Initialize extension
-    async function initialize(): Promise<void> {
-        // Load pause state
-        isTrackingPaused = context.globalState.get<boolean>('branchTimeTracker.isPaused', false);
-
-        // Create status bar item
-        statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-        statusBarItem.command = 'branch-time-tracker.showStats';
-        statusBarItem.text = '$(loading~spin) Loading branch time...';
-        statusBarItem.tooltip = 'Loading branch time data...';
-        statusBarItem.show();
-
-        workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            statusBarItem.text = '$(error) No workspace folder';
-            statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time';
-            console.log('No workspace folder open');
-            return;
-        }
-
-        // Load settings from storage
-        autoRefreshEnabled = context.globalState.get<boolean>('branchTimeTracker.autoRefreshEnabled', true);
-        const savedIntervalMinutes = context.globalState.get<number>('branchTimeTracker.autoRefreshInterval', 2);
-        autoRefreshInterval = Math.max(1, savedIntervalMinutes || 2) * ONE_MINUTE;
-
-        loadBranchTimes();
-        await handleBranchChange();
-        updateStatusBar();
-
-        // Set up git HEAD file watcher to detect branch changes
-        setupGitHeadWatcher();
-
-        // Set up the auto-refresh timer if enabled
-        setupAutoRefresh();
-
-        // Set up event listeners
-        vscode.workspace.onDidChangeWorkspaceFolders(async () => {
-            workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (workspaceFolder) {
-                setupGitHeadWatcher();
-                await handleBranchChange();
-                updateStatusBar();
-            } else {
-                statusBarItem.text = '$(error) No workspace folder';
-                statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time';
-                if (gitHeadWatcher) {
-                    gitHeadWatcher.dispose();
-                    gitHeadWatcher = null;
-                }
-            }
-        });
-    }
-
-    // Escape HTML to prevent XSS
-    function escapeHtml(unsafe: string): string {
-        return unsafe
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-    }
-
-    // Format time in a human-readable format (without seconds for status bar)
-    function formatTime(seconds: number, showSeconds: boolean = false): string {
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const remainingSeconds = seconds % 60;
-        
-        const parts: string[] = [];
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
-        if (showSeconds) parts.push(`${remainingSeconds}s`);
-        
-        return parts.length > 0 ? parts.join(' ') : '0m';
-    }
-
-    // Set up or update the auto-refresh timer
-    function setupAutoRefresh(): void {
-        // Clear any existing timer
-        if (currentTimer) {
-            clearInterval(currentTimer);
-            currentTimer = null;
-        }
-
-        // Set up new timer if auto-refresh is enabled
-        if (autoRefreshEnabled) {
-            currentTimer = setInterval(() => {
-                // Update branch time
-                if (currentBranch) {
-                    updateBranchTime();
-                }
-                
-                // Update status bar
-                updateStatusBar();
-                
-                // Notify all registered callbacks (e.g., webview panels)
-                refreshCallbacks.forEach(callback => callback());
-                
-            }, autoRefreshInterval);
-            
-            console.log(`Auto-refresh enabled with ${autoRefreshInterval / ONE_MINUTE} minute interval`);
-        }
-    }
-
-    // Register a callback to be called on each auto-refresh
-    function registerRefreshCallback(callback: () => void): vscode.Disposable {
-        refreshCallbacks.push(callback);
-        
-        return new vscode.Disposable(() => {
-            const index = refreshCallbacks.indexOf(callback);
-            if (index !== -1) {
-                refreshCallbacks.splice(index, 1);
-            }
-        });
-    }
-
-    // Show branch time statistics in a new tab
-    async function showBranchStats(): Promise<void> {
-        // Force refresh the current branch time before showing stats
-        if (currentBranch) {
-            updateBranchTime();
-        }
-
-        if (branchTimes.size === 0) {
-            vscode.window.showInformationMessage('No branch time data available yet.');
-            return;
-        }
-
-        // Sort branches by time spent (descending)
-        const sortedBranches = Array.from(branchTimes.entries())
-            .sort((a, b) => b[1].seconds - a[1].seconds);
-
-        // Calculate total time across all branches
-        const totalSeconds = sortedBranches.reduce((sum, [_, time]) => sum + time.seconds, 0);
-
-        // Create and show a new webview panel
-        const panel = vscode.window.createWebviewPanel(
-            'branchTimeTracker',
-            'Branch Time Stats',
-            vscode.ViewColumn.Beside,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true
-            }
+        // Show error to user
+        vscode.window.showErrorMessage(
+            `Failed to activate Branch Time Tracker: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
 
-        // Update panel content function
-        const updatePanelContent = () => {
-            const freshBranches = Array.from(branchTimes.entries())
-                .sort((a, b) => b[1].seconds - a[1].seconds);
-            const freshTotal = freshBranches.reduce((sum, [_, time]) => sum + time.seconds, 0);
-            
-            panel.webview.html = getBranchStatsHtml(freshBranches, freshTotal);
-        };
+        throw error;
+    }
+}
 
-        // Initial content
-        updatePanelContent();
+/**
+ * Deactivate the extension
+ */
+export function deactivate(): void {
+    console.log('Branch Time Tracker deactivating...');
 
-        // Handle messages from the webview
-        const messageDisposable = panel.webview.onDidReceiveMessage(
-            async message => {
-                console.log('Received message:', message);
-                switch (message.command) {
-                    case 'refresh':
-                        // Force refresh the stats and update status bar
-                        if (currentBranch) {
-                            updateBranchTime();
-                        }
-                        updatePanelContent();
-                        updateStatusBar();
-                        break;
-                        
-                    case 'setAutoRefresh':
-                        // Update auto-refresh settings
-                        const newEnabled = message.enabled;
-                        const newIntervalMinutes = Math.max(1, message.interval || 2);
-                        
-                        // Update the module state
-                        autoRefreshEnabled = newEnabled;
-                        autoRefreshInterval = newIntervalMinutes * ONE_MINUTE;
-                        
-                        // Save settings
-                        await context.globalState.update('branchTimeTracker.autoRefreshEnabled', newEnabled);
-                        await context.globalState.update('branchTimeTracker.autoRefreshInterval', newIntervalMinutes);
-                        
-                        // Update the auto-refresh timer
-                        setupAutoRefresh();
-                        
-                        // Update the panel to show the new settings
-                        updatePanelContent();
-                        break;
-                        
-                    case 'togglePause':
-                        await togglePauseTracking();
-                        updatePanelContent();
-                        break;
-                        
-                    case 'exportData':
-                        await exportBranchData();
-                        break;
-                        
-                    case 'importData':
-                        await importBranchData();
-                        updatePanelContent();
-                        updateStatusBar();
-                        break;
-                }
-            },
-            undefined,
-            context.subscriptions
-        );
-        
-        // Register for auto-refresh updates
-        const refreshDisposable = registerRefreshCallback(updatePanelContent);
-
-        // Clean up when the panel is disposed
-        panel.onDidDispose(() => {
-            messageDisposable.dispose();
-            refreshDisposable.dispose();
-        });
+    if (extensionState) {
+        cleanupExtension(extensionState);
+        extensionState = null;
     }
 
-    // Set up file system watcher for .git/HEAD changes
-    function setupGitHeadWatcher(): void {
-        if (gitHeadWatcher) {
-            gitHeadWatcher.dispose();
-        }
+    console.log('Branch Time Tracker deactivated');
+}
 
-        if (!workspaceFolder) return;
+/**
+ * Set up the extension with services and UI
+ */
+async function setupExtension(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
+    // Get services from container
+    const trackingEngine = state.serviceContainer.get<ITrackingEngine>(ServiceType.TrackingEngine);
+    const configManager = state.serviceContainer.get<IConfigurationManager>(ServiceType.ConfigurationManager);
+    const gitService = state.serviceContainer.get<IGitService>(ServiceType.GitService);
+    const storageService = state.serviceContainer.get<IStorageService>(ServiceType.StorageService);
 
-        const gitHeadPath = path.join(workspaceFolder.uri.fsPath, '.git', 'HEAD');
-        
-        gitHeadWatcher = vscode.workspace.createFileSystemWatcher(gitHeadPath);
-        gitHeadWatcher.onDidChange(async () => {
-            console.log('Git HEAD changed, updating branch...');
-            await handleBranchChange();
-        });
-
-        gitHeadWatcher.onDidCreate(async () => {
-            console.log('Git HEAD created, updating branch...');
-            await handleBranchChange();
-        });
+    // Initialize UI components
+    await state.statusBarView.initialize();
+    if (state.statisticsWebview) {
+        await state.statisticsWebview.initialize();
+    }
+    if (state.settingsPanel) {
+        await state.settingsPanel.initialize();
     }
 
-    // Get extension version from package.json
-    const extensionVersion = context.extension.packageJSON.version;
-
-    // FIXED: Generate HTML for the branch statistics view
-    function getBranchStatsHtml(sortedBranches: [string, BranchTime][], totalSeconds: number): string {
-        return `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Branch Time Tracker v${extensionVersion}</title>
-                <script>
-                    const vscode = acquireVsCodeApi();
-                    
-                    function setupEventListeners() {
-                        const refreshButton = document.getElementById('refresh-button');
-                        if (refreshButton) {
-                            refreshButton.onclick = () => {
-                                vscode.postMessage({ command: 'refresh' });
-                            };
-                        }
-                        
-                        const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
-                        const refreshInterval = document.getElementById('refresh-interval');
-                        
-                        if (autoRefreshToggle) {
-                            autoRefreshToggle.onchange = (e) => {
-                                const interval = refreshInterval ? parseInt(refreshInterval.value) : 2;
-                                vscode.postMessage({ 
-                                    command: 'setAutoRefresh', 
-                                    enabled: e.target.checked,
-                                    interval: interval
-                                });
-                            };
-                        }
-                        
-                        if (refreshInterval) {
-                            refreshInterval.onchange = (e) => {
-                                const enabled = autoRefreshToggle ? autoRefreshToggle.checked : false;
-                                vscode.postMessage({ 
-                                    command: 'setAutoRefresh',
-                                    enabled: enabled,
-                                    interval: parseInt(e.target.value)
-                                });
-                            };
-                        }
-                        
-                        const pauseButton = document.getElementById('pause-button');
-                        if (pauseButton) {
-                            pauseButton.onclick = () => {
-                                vscode.postMessage({ command: 'togglePause' });
-                            };
-                        }
-                        
-                        const exportButton = document.getElementById('export-button');
-                        if (exportButton) {
-                            exportButton.onclick = () => {
-                                vscode.postMessage({ command: 'exportData' });
-                            };
-                        }
-                        
-                        const importButton = document.getElementById('import-button');
-                        if (importButton) {
-                            importButton.onclick = () => {
-                                vscode.postMessage({ command: 'importData' });
-                            };
-                        }
-                    }
-                    
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', setupEventListeners);
-                    } else {
-                        setupEventListeners();
-                    }
-                </script>
-                <style>
-                    body {
-                        font-family: var(--vscode-font-family);
-                        padding: 20px;
-                        color: var(--vscode-foreground);
-                        background-color: var(--vscode-editor-background);
-                        line-height: 1.6;
-                    }
-                    
-                    h1 {
-                        color: var(--vscode-textLink-foreground);
-                        margin-bottom: 20px;
-                        border-bottom: 1px solid var(--vscode-panel-border);
-                        padding-bottom: 10px;
-                    }
-                    
-                    .version-info {
-                        color: var(--vscode-comment-foreground);
-                        font-size: 0.8em;
-                        margin-bottom: 20px;
-                    }
-                    
-                    .refresh-controls {
-                        display: flex;
-                        gap: 15px;
-                        align-items: center;
-                        margin-bottom: 20px;
-                        padding: 15px;
-                        background-color: var(--vscode-panel-background);
-                        border: 1px solid var(--vscode-panel-border);
-                        border-radius: 4px;
-                        flex-wrap: wrap;
-                    }
-                    
-                    .data-controls {
-                        display: flex;
-                        gap: 10px;
-                        align-items: center;
-                    }
-                    
-                    .refresh-button {
-                        padding: 8px 16px;
-                        background-color: var(--vscode-button-background);
-                        color: var(--vscode-button-foreground);
-                        border: none;
-                        border-radius: 3px;
-                        cursor: pointer;
-                        font-size: 0.9em;
-                    }
-                    
-                    .refresh-button:hover {
-                        background-color: var(--vscode-button-hoverBackground);
-                    }
-                    
-                    .refresh-button.paused {
-                        background-color: var(--vscode-button-secondaryBackground);
-                        color: var(--vscode-button-secondaryForeground);
-                    }
-                    
-                    .refresh-button.paused:hover {
-                        background-color: var(--vscode-button-secondaryHoverBackground);
-                    }
-                    
-                    .refresh-button.secondary {
-                        background-color: var(--vscode-button-secondaryBackground);
-                        color: var(--vscode-button-secondaryForeground);
-                        font-size: 0.85em;
-                    }
-                    
-                    .refresh-button.secondary:hover {
-                        background-color: var(--vscode-button-secondaryHoverBackground);
-                    }
-                    
-                    .auto-refresh-controls {
-                        display: flex;
-                        align-items: center;
-                        gap: 8px;
-                    }
-                    
-                    .auto-refresh-controls label {
-                        font-size: 0.9em;
-                        color: var(--vscode-foreground);
-                    }
-                    
-                    .auto-refresh-controls input[type="number"] {
-                        width: 60px;
-                        padding: 4px 6px;
-                        background-color: var(--vscode-input-background);
-                        color: var(--vscode-input-foreground);
-                        border: 1px solid var(--vscode-input-border);
-                        border-radius: 3px;
-                    }
-                    
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin-bottom: 20px;
-                    }
-                    
-                    th, td {
-                        text-align: left;
-                        padding: 12px 8px;
-                        border-bottom: 1px solid var(--vscode-panel-border);
-                    }
-                    
-                    th {
-                        background-color: var(--vscode-panelSectionHeader-background);
-                        font-weight: 600;
-                    }
-                    
-                    tr:hover {
-                        background-color: var(--vscode-list-hoverBackground);
-                    }
-                    
-                    .current-branch {
-                        font-weight: bold;
-                        color: var(--vscode-textLink-activeForeground);
-                    }
-                    
-                    .time {
-                        font-family: var(--vscode-editor-font-family);
-                        font-size: 0.95em;
-                        white-space: nowrap;
-                    }
-                    
-                    .percentage-bar {
-                        height: 6px;
-                        background-color: var(--vscode-progressBar-background);
-                        border-radius: 3px;
-                        margin-top: 4px;
-                        overflow: hidden;
-                    }
-                    
-                    .percentage-fill {
-                        height: 100%;
-                        background-color: var(--vscode-progressBar-background);
-                        border-radius: 3px;
-                        transition: width 0.3s ease;
-                    }
-                    
-                    .summary {
-                        margin-top: 20px;
-                        padding: 15px;
-                        background-color: var(--vscode-panel-background);
-                        border: 1px solid var(--vscode-panel-border);
-                        border-radius: 4px;
-                    }
-                    
-                    .summary p {
-                        margin: 8px 0;
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>Branch Time Tracker</h1>
-                <p class="version-info">Version ${extensionVersion}</p>
-                
-                <div class="refresh-controls">
-                    <button id="refresh-button" class="refresh-button">
-                        🔄 Refresh Now
-                    </button>
-                    
-                    <button id="pause-button" class="refresh-button ${isTrackingPaused ? 'paused' : ''}">
-                        ${isTrackingPaused ? '▶️ Resume Tracking' : '⏸️ Pause Tracking'}
-                    </button>
-                    
-                    <div class="data-controls">
-                        <button id="export-button" class="refresh-button secondary">
-                            📤 Export Data
-                        </button>
-                        
-                        <button id="import-button" class="refresh-button secondary">
-                            📥 Import Data
-                        </button>
-                    </div>
-                    
-                    <div class="auto-refresh-controls">
-                        <label>
-                            <input type="checkbox" id="auto-refresh-toggle" ${autoRefreshEnabled ? 'checked' : ''}>
-                            Auto-refresh every
-                        </label>
-                        <input type="number" id="refresh-interval" min="1" max="60" value="${autoRefreshInterval / ONE_MINUTE}">
-                        <label>minutes</label>
-                    </div>
-                </div>
-                
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Branch</th>
-                            <th>Time Spent</th>
-                            <th>Percentage</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${sortedBranches.map(([branch, time], index) => {
-                            const isCurrent = branch === currentBranch;
-                            const percentage = totalSeconds > 0 ? (time.seconds / totalSeconds) * 100 : 0;
-                            return `
-                                <tr ${isCurrent ? 'class="current-branch"' : ''}>
-                                    <td>${index + 1}</td>
-                                    <td>${escapeHtml(branch)}${isCurrent ? ' 👈 (current)' : ''}</td>
-                                    <td class="time">${formatTime(time.seconds, true)}</td>
-                                    <td>
-                                        ${percentage.toFixed(1)}%
-                                        <div class="percentage-bar">
-                                            <div class="percentage-fill" style="width: ${percentage}%; background-color: ${isCurrent ? 'var(--vscode-textLink-activeForeground)' : 'var(--vscode-progressBar-background)'}"></div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-
-                <div class="summary">
-                    <p><strong>Summary:</strong></p>
-                    <p>📊 Total time tracked: <strong>${formatTime(totalSeconds, true)}</strong></p>
-                    <p>🌿 Active branch: <strong>${currentBranch || 'None'}</strong></p>
-                    <p>📈 Total branches: <strong>${branchTimes.size}</strong></p>
-                </div>
-            </body>
-            </html>
-        `;
-    }
+    // Set up event handlers
+    setupEventHandlers(state, trackingEngine, configManager);
 
     // Register commands
-    context.subscriptions.push(
-        vscode.commands.registerCommand('branch-time-tracker.showStats', showBranchStats),
-        vscode.commands.registerCommand('branch-time-tracker.togglePause', togglePauseTracking),
-        vscode.commands.registerCommand('branch-time-tracker.exportData', exportBranchData),
-        vscode.commands.registerCommand('branch-time-tracker.importData', importBranchData)
-    );
+    registerCommands(context, state, trackingEngine, configManager);
 
-    // Initialize and set up event listeners
-    initialize();
+    // Set up workspace change handling
+    setupWorkspaceHandling(state);
 
-    // Clean up on deactivation
-    const extension: BranchTimeTrackerExtension = {
-        updateBranchTime,
-        updateStatusBar,
-        dispose: () => {
-            if (currentTimer) {
-                clearInterval(currentTimer);
-                currentTimer = null;
-            }
-            if (gitHeadWatcher) {
-                gitHeadWatcher.dispose();
-                gitHeadWatcher = null;
-            }
-            if (statusBarHighlightTimeout) {
-                clearTimeout(statusBarHighlightTimeout);
-                statusBarHighlightTimeout = null;
-            }
-            updateBranchTime(); // Save final time update
-            statusBarItem?.dispose();
-        }
-    };
-    
-    return extension;
+    // Initial UI update
+    updateUI(state, trackingEngine);
+
+    state.isActivated = true;
 }
 
-export function deactivate() {}
+/**
+ * Set up event handlers for services
+ */
+function setupEventHandlers(
+    state: ExtensionState,
+    trackingEngine: ITrackingEngine,
+    configManager: IConfigurationManager
+): void {
+    // Track tracking state changes
+    state.disposables.push(
+        trackingEngine.onStateChange((trackingState: TrackingState) => {
+            updateStatusBarFromTrackingState(state, trackingState);
+            
+            // Update webview if open
+            if (state.statisticsWebview) {
+                state.statisticsWebview.updateData(createStatisticsDataForWebview(trackingEngine));
+            }
+        })
+    );
+
+    // Track time updates
+    state.disposables.push(
+        trackingEngine.onTimeUpdate((branch: string, time: number) => {
+            console.debug(`Time updated for branch ${branch}: ${time}s`);
+            
+            // Update UI components that show time data
+            if (state.statisticsWebview) {
+                state.statisticsWebview.updateData(createStatisticsDataForWebview(trackingEngine));
+            }
+        })
+    );
+
+    // Track branch changes
+    state.disposables.push(
+        trackingEngine.onBranchChange((newBranch: string, oldBranch: string | null) => {
+            console.log(`Branch changed from ${oldBranch || 'unknown'} to ${newBranch}`);
+            
+            // Highlight status bar briefly
+            state.statusBarView.highlightBranchChange();
+            
+            // Update all UI components
+            updateUI(state, trackingEngine);
+        })
+    );
+
+    // Track errors
+    state.disposables.push(
+        trackingEngine.onError((error: Error) => {
+            console.error('Tracking engine error:', error);
+            
+            // Show error in status bar
+            state.statusBarView.showError(error.message);
+            
+            // Optionally show error message to user for critical errors
+            if (error.message.includes('initialization') || error.message.includes('critical')) {
+                vscode.window.showErrorMessage(`Branch Time Tracker: ${error.message}`);
+            }
+        })
+    );
+
+    // Track configuration changes
+    state.disposables.push(
+        configManager.onConfigurationChanged((event) => {
+            console.log('Configuration changed:', event.changedKeys);
+            
+            // Update UI based on configuration changes
+            if (event.changedKeys.includes('theme') || event.changedKeys.includes('displayFormat')) {
+                updateUI(state, trackingEngine);
+            }
+        })
+    );
+}
+
+/**
+ * Register VS Code commands
+ */
+function registerCommands(
+    context: vscode.ExtensionContext,
+    state: ExtensionState,
+    trackingEngine: ITrackingEngine,
+    configManager: IConfigurationManager
+): void {
+    // Show statistics command
+    const showStatsCommand = vscode.commands.registerCommand(
+        'branch-time-tracker.showStats',
+        async () => {
+            try {
+                if (state.statisticsWebview) {
+                    await state.statisticsWebview.show();
+                    
+                    // Update with formatted data
+                    state.statisticsWebview.updateData(createStatisticsDataForWebview(trackingEngine));
+                }
+            } catch (error) {
+                console.error('Error showing statistics:', error);
+                vscode.window.showErrorMessage('Failed to show branch time statistics');
+            }
+        }
+    );
+
+    // Show settings command
+    const showSettingsCommand = vscode.commands.registerCommand(
+        'branch-time-tracker.showSettings',
+        async () => {
+            try {
+                if (state.settingsPanel) {
+                    await state.settingsPanel.show();
+                    
+                    // Update with current settings
+                    state.settingsPanel.updateSettings({
+                        globalSettings: configManager.getGlobalSettings(),
+                        workspaceSettings: configManager.getWorkspaceSettings(),
+                        effectiveSettings: configManager.getEffectiveSettings(),
+                        presets: configManager.getPresetManager().getAllPresets(),
+                        activePreset: configManager.getActivePreset()
+                    });
+                }
+            } catch (error) {
+                console.error('Error showing settings:', error);
+                vscode.window.showErrorMessage('Failed to show branch time settings');
+            }
+        }
+    );
+
+    // Pause/Resume tracking command
+    const togglePauseCommand = vscode.commands.registerCommand(
+        'branch-time-tracker.togglePause',
+        async () => {
+            try {
+                const currentState = trackingEngine.getTrackingState();
+                
+                if (currentState.isPaused) {
+                    trackingEngine.resumeTracking();
+                    vscode.window.showInformationMessage('Branch time tracking resumed');
+                } else {
+                    trackingEngine.pauseTracking();
+                    vscode.window.showInformationMessage('Branch time tracking paused');
+                }
+            } catch (error) {
+                console.error('Error toggling pause:', error);
+                vscode.window.showErrorMessage('Failed to toggle tracking pause');
+            }
+        }
+    );
+
+    // Export data command
+    const exportDataCommand = vscode.commands.registerCommand(
+        'branch-time-tracker.exportData',
+        async () => {
+            try {
+                const format = await vscode.window.showQuickPick(
+                    [
+                        { label: 'JSON', description: 'Complete data with metadata', value: 'json' },
+                        { label: 'CSV', description: 'Simple tabular format', value: 'csv' }
+                    ],
+                    { placeHolder: 'Select export format' }
+                );
+
+                if (!format) return;
+
+                const uri = await vscode.window.showSaveDialog({
+                    filters: {
+                        [format.label]: [format.value]
+                    },
+                    defaultUri: vscode.Uri.file(`branch-times.${format.value}`)
+                });
+
+                if (!uri) return;
+
+                const exportData = await trackingEngine.exportData(format.value as 'json' | 'csv');
+                await vscode.workspace.fs.writeFile(uri, Buffer.from(exportData, 'utf8'));
+
+                vscode.window.showInformationMessage(`Branch time data exported to ${uri.fsPath}`);
+            } catch (error) {
+                console.error('Error exporting data:', error);
+                vscode.window.showErrorMessage('Failed to export branch time data');
+            }
+        }
+    );
+
+    // Import data command
+    const importDataCommand = vscode.commands.registerCommand(
+        'branch-time-tracker.importData',
+        async () => {
+            try {
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    filters: {
+                        'JSON Files': ['json'],
+                        'CSV Files': ['csv']
+                    }
+                });
+
+                if (!uris || uris.length === 0) return;
+
+                const uri = uris[0];
+                const fileExtension = uri.fsPath.split('.').pop()?.toLowerCase();
+                
+                if (!fileExtension || !['json', 'csv'].includes(fileExtension)) {
+                    vscode.window.showErrorMessage('Unsupported file format. Please select a JSON or CSV file.');
+                    return;
+                }
+
+                const confirmation = await vscode.window.showWarningMessage(
+                    'This will replace your current branch time data. Are you sure?',
+                    { modal: true },
+                    'Import Data',
+                    'Cancel'
+                );
+
+                if (confirmation !== 'Import Data') return;
+
+                const fileData = await vscode.workspace.fs.readFile(uri);
+                const dataString = fileData.toString();
+
+                await trackingEngine.importData(dataString, fileExtension as 'json' | 'csv');
+
+                vscode.window.showInformationMessage('Branch time data imported successfully');
+                
+                // Update UI after import
+                updateUI(state, trackingEngine);
+            } catch (error) {
+                console.error('Error importing data:', error);
+                vscode.window.showErrorMessage(`Failed to import branch time data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        }
+    );
+
+    // Force save command
+    const forceSaveCommand = vscode.commands.registerCommand(
+        'branch-time-tracker.forceSave',
+        async () => {
+            try {
+                await trackingEngine.forceSave();
+                vscode.window.showInformationMessage('Branch time data saved');
+            } catch (error) {
+                console.error('Error saving data:', error);
+                vscode.window.showErrorMessage('Failed to save branch time data');
+            }
+        }
+    );
+
+    // Refresh data command
+    const refreshCommand = vscode.commands.registerCommand(
+        'branch-time-tracker.refresh',
+        async () => {
+            try {
+                // Update current branch time
+                trackingEngine.updateCurrentBranchTime();
+                
+                // Force save
+                await trackingEngine.forceSave();
+                
+                // Update UI
+                updateUI(state, trackingEngine);
+                
+                vscode.window.showInformationMessage('Branch time data refreshed');
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                vscode.window.showErrorMessage('Failed to refresh branch time data');
+            }
+        }
+    );
+
+    // Register all commands
+    context.subscriptions.push(
+        showStatsCommand,
+        showSettingsCommand,
+        togglePauseCommand,
+        exportDataCommand,
+        importDataCommand,
+        forceSaveCommand,
+        refreshCommand
+    );
+
+    state.disposables.push(
+        showStatsCommand,
+        showSettingsCommand,
+        togglePauseCommand,
+        exportDataCommand,
+        importDataCommand,
+        forceSaveCommand,
+        refreshCommand
+    );
+}
+
+/**
+ * Set up workspace change handling
+ */
+function setupWorkspaceHandling(state: ExtensionState): void {
+    // Handle workspace folder changes
+    const workspaceChangeDisposable = vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
+        try {
+            const newWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            
+            console.log('Workspace folders changed, switching to:', newWorkspaceFolder?.uri.fsPath || 'none');
+            
+            // Switch workspace in service container
+            await state.serviceContainer.switchWorkspace(newWorkspaceFolder);
+            
+            // Update UI
+            const trackingEngine = state.serviceContainer.get<ITrackingEngine>(ServiceType.TrackingEngine);
+            updateUI(state, trackingEngine);
+            
+        } catch (error) {
+            console.error('Error handling workspace change:', error);
+            vscode.window.showErrorMessage('Failed to switch workspace for branch time tracking');
+        }
+    });
+
+    state.disposables.push(workspaceChangeDisposable);
+}
+
+/**
+ * Create statistics data for webview
+ */
+function createStatisticsDataForWebview(trackingEngine: ITrackingEngine): any {
+    const branchTimes = trackingEngine.getBranchTimes();
+    const statistics = trackingEngine.getBranchStatistics();
+    
+    return {
+        branches: Array.from(branchTimes.entries()).map(([name, branchTime]) => ({
+            name,
+            time: branchTime.seconds,
+            lastUpdated: branchTime.lastUpdated,
+            sessionCount: branchTime.sessionCount,
+            averageSessionTime: branchTime.averageSessionTime,
+            percentage: statistics.totalTime > 0 ? (branchTime.seconds / statistics.totalTime) * 100 : 0
+        })).sort((a, b) => b.time - a.time), // Sort by time descending
+        totalTime: statistics.totalTime,
+        filters: createDefaultFilters(),
+        isLoading: false
+    };
+}
+
+/**
+ * Update all UI components
+ */
+function updateUI(state: ExtensionState, trackingEngine: ITrackingEngine): void {
+    const trackingState = trackingEngine.getTrackingState();
+    
+    // Update status bar
+    updateStatusBarFromTrackingState(state, trackingState);
+    
+    // Update webview if open
+    if (state.statisticsWebview) {
+        state.statisticsWebview.updateData(createStatisticsDataForWebview(trackingEngine));
+    }
+}
+
+/**
+ * Update status bar from tracking state
+ */
+function updateStatusBarFromTrackingState(state: ExtensionState, trackingState: TrackingState): void {
+    const statusBarData: StatusBarData = {
+        currentBranch: trackingState.currentBranch,
+        currentTime: trackingState.currentBranchTime,
+        isPaused: trackingState.isPaused,
+        isLoading: false,
+        error: trackingState.error
+    };
+
+    state.statusBarView.update(statusBarData);
+}
+
+/**
+ * Create extension API for external access
+ */
+function createExtensionAPI(state: ExtensionState): BranchTimeTrackerExtension {
+    return {
+        getServiceContainer(): IServiceContainer {
+            return state.serviceContainer;
+        },
+
+        getTrackingState(): TrackingState {
+            const trackingEngine = state.serviceContainer.get<ITrackingEngine>(ServiceType.TrackingEngine);
+            return trackingEngine.getTrackingState();
+        },
+
+        updateBranchTime(): void {
+            const trackingEngine = state.serviceContainer.get<ITrackingEngine>(ServiceType.TrackingEngine);
+            trackingEngine.updateCurrentBranchTime();
+        },
+
+        updateStatusBar(): void {
+            const trackingEngine = state.serviceContainer.get<ITrackingEngine>(ServiceType.TrackingEngine);
+            updateUI(state, trackingEngine);
+        },
+
+        dispose(): void {
+            if (extensionState) {
+                cleanupExtension(extensionState);
+                extensionState = null;
+            }
+        }
+    };
+}
+
+/**
+ * Clean up extension resources
+ */
+function cleanupExtension(state: ExtensionState): void {
+    try {
+        // Dispose all disposables
+        state.disposables.forEach(disposable => {
+            try {
+                disposable.dispose();
+            } catch (error) {
+                console.error('Error disposing resource:', error);
+            }
+        });
+        state.disposables = [];
+
+        // Dispose UI components
+        if (state.statusBarView) {
+            state.statusBarView.dispose();
+        }
+        if (state.statisticsWebview) {
+            state.statisticsWebview.dispose();
+        }
+        if (state.settingsPanel) {
+            state.settingsPanel.dispose();
+        }
+
+        // Dispose service container (this will dispose all services)
+        state.serviceContainer.dispose();
+
+        state.isActivated = false;
+    } catch (error) {
+        console.error('Error during extension cleanup:', error);
+    }
+}
+
+/**
+ * Get extension state for testing
+ */
+export function getExtensionState(): ExtensionState | null {
+    return extensionState;
+}

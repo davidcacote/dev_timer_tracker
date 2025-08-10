@@ -2,7 +2,7 @@
     "name": "branch-time-tracker",
     "displayName": "Branch Time Tracker",
     "description": "Track your coding time per git branch",
-    "version": "0.3.3",
+    "version": "0.4.0",
     "publisher": "davidcacote",
     "repository": {
         "type": "git",

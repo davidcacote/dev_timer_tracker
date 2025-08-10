@@ -28,8 +28,23 @@ jest.mock('vscode', () => ({
 describe('StatisticsWebview', () => {
     let statisticsWebview: StatisticsWebview;
     let mockPanel: any;
+    let mockContext: any;
 
     beforeEach(() => {
+        mockContext = {
+            subscriptions: [],
+            workspaceState: {
+                get: jest.fn(),
+                update: jest.fn()
+            },
+            globalState: {
+                get: jest.fn(),
+                update: jest.fn()
+            },
+            extensionPath: '/test/extension/path',
+            globalStoragePath: '/test/global/storage',
+            workspaceStoragePath: '/test/workspace/storage'
+        };
         mockPanel = {
             webview: {
                 html: '',
@@ -48,6 +63,7 @@ describe('StatisticsWebview', () => {
         (vscode.window.createWebviewPanel as jest.Mock).mockReturnValue(mockPanel);
         
         statisticsWebview = new StatisticsWebview(
+            mockContext,
             DEFAULT_WEBVIEW_CONFIG,
             DEFAULT_WEBVIEW_THEME
         );
@@ -118,7 +134,7 @@ describe('StatisticsWebview', () => {
             };
 
             await statisticsWebview.show();
-            statisticsWebview.update(testData);
+            statisticsWebview.updateData(testData);
 
             expect(mockPanel.webview.html).toContain('main');
             expect(mockPanel.webview.html).toContain('feature-branch');
@@ -135,7 +151,7 @@ describe('StatisticsWebview', () => {
             };
 
             await statisticsWebview.show();
-            statisticsWebview.update(loadingData);
+            statisticsWebview.updateData(loadingData);
 
             expect(mockPanel.webview.html).toContain('Loading');
         });
@@ -149,7 +165,7 @@ describe('StatisticsWebview', () => {
             };
 
             await statisticsWebview.show();
-            statisticsWebview.update(emptyData);
+            statisticsWebview.updateData(emptyData);
 
             expect(mockPanel.webview.html).toContain('No branches match');
         });
@@ -223,7 +239,7 @@ describe('StatisticsWebview', () => {
             };
 
             await statisticsWebview.show();
-            statisticsWebview.update(testData);
+            statisticsWebview.updateData(testData);
 
             const html = mockPanel.webview.html;
             expect(html).not.toContain('<script>alert("xss")</script>');

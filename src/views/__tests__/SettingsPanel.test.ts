@@ -48,8 +48,23 @@ describe('SettingsPanel', () => {
     let settingsPanel: SettingsPanel;
     let mockPanel: any;
     let mockEventEmitter: any;
+    let mockContext: any;
 
     beforeEach(() => {
+        mockContext = {
+            subscriptions: [],
+            workspaceState: {
+                get: jest.fn(),
+                update: jest.fn()
+            },
+            globalState: {
+                get: jest.fn(),
+                update: jest.fn()
+            },
+            extensionPath: '/test/extension/path',
+            globalStoragePath: '/test/global/storage',
+            workspaceStoragePath: '/test/workspace/storage'
+        };
         mockEventEmitter = {
             event: jest.fn(),
             fire: jest.fn(),
@@ -74,7 +89,7 @@ describe('SettingsPanel', () => {
 
         (vscode.window.createWebviewPanel as jest.Mock).mockReturnValue(mockPanel);
         
-        settingsPanel = new SettingsPanel(DEFAULT_SETTINGS_PANEL_CONFIG);
+        settingsPanel = new SettingsPanel(mockContext, DEFAULT_SETTINGS_PANEL_CONFIG);
     });
 
     afterEach(() => {
