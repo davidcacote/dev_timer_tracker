@@ -55,6 +55,7 @@ interface ExtensionState {
     settingsPanel: SettingsPanel | null;
     disposables: vscode.Disposable[];
     isActivated: boolean;
+    uiRefreshTimer?: NodeJS.Timeout | null;
 }
 
 let extensionState: ExtensionState | null = null;
@@ -156,6 +157,16 @@ async function setupExtension(context: vscode.ExtensionContext, state: Extension
 
     // Initial UI update
     updateUI(state, trackingEngine);
+
+    // Fallback UI refresh to ensure live counter updates
+    // This complements the engine's internal tick and guarantees rendering
+    state.uiRefreshTimer = setInterval(() => {
+        try {
+            updateUI(state, trackingEngine);
+        } catch (e) {
+            console.error('Status bar refresh failed:', e);
+        }
+    }, 1000);
 
     state.isActivated = true;
 }
@@ -574,6 +585,12 @@ function cleanupExtension(state: ExtensionState): void {
             }
         });
         state.disposables = [];
+
+        // Clear UI refresh timer
+        if (state.uiRefreshTimer) {
+            clearInterval(state.uiRefreshTimer);
+            state.uiRefreshTimer = null;
+        }
 
         // Dispose UI components
         if (state.statusBarView) {

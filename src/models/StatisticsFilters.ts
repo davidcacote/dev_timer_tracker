@@ -16,7 +16,7 @@ export interface StatisticsFilters {
     /** Maximum time threshold in seconds */
     maxTime?: number;
     /** Sort field */
-    sortBy: 'time' | 'name' | 'lastUpdated' | 'sessionCount';
+    sortBy: 'time' | 'name' | 'lastUpdated' | 'sessionCount' | 'switchingFrequency';
     /** Sort order */
     sortOrder: 'asc' | 'desc';
 }
@@ -33,6 +33,21 @@ export interface StatisticsData {
         sessionCount: number;
         averageSessionTime: number;
         percentage: number;
+        switchingFrequency?: number;
+        timeDistribution?: {
+            morning: number;
+            afternoon: number;
+            evening: number;
+            night: number;
+        };
+        firstSessionDate?: string;
+        lastSessionDate?: string;
+        dailyAverages?: Record<string, number>;
+        sessions?: Array<{
+            start: string;
+            end?: string;
+            duration: number;
+        }>;
     }>;
     /** Total time for filtered data */
     totalTime: number;
@@ -40,6 +55,12 @@ export interface StatisticsData {
     filters: StatisticsFilters;
     /** Whether data is loading */
     isLoading: boolean;
+    /** Optional period comparisons when dateRange is set */
+    comparisons?: {
+        time?: { current: number; previous: number; percentageChange: number };
+        sessions?: { current: number; previous: number; percentageChange: number };
+        averageSessionTime?: { current: number; previous: number; percentageChange: number };
+    };
 }
 
 /**
@@ -60,14 +81,42 @@ export function createDefaultFilters(): StatisticsFilters {
  * @returns Filtered and sorted statistics data
  */
 export function applyFilters(branchTimes: Map<string, BranchTime>, filters: StatisticsFilters): StatisticsData {
-    let filteredBranches = Array.from(branchTimes.entries()).map(([name, branchTime]) => ({
-        name,
-        time: branchTime.seconds,
-        lastUpdated: branchTime.lastUpdated,
-        sessionCount: branchTime.sessionCount,
-        averageSessionTime: branchTime.averageSessionTime,
-        percentage: 0 // Will be calculated after filtering
-    }));
+    let filteredBranches = Array.from(branchTimes.entries()).map(([name, branchTime]) => {
+        // derive daily averages if available
+        const dailyAverages = branchTime.dailyStats
+            ? branchTime.dailyStats.reduce<Record<string, number>>((acc, d) => {
+                acc[String(d.day)] = d.sessionCount > 0 ? Math.floor(d.totalTime / d.sessionCount) : 0;
+                return acc;
+            }, {})
+            : undefined;
+        // map sessions to simplified shape with computed duration in seconds
+        const sessions = branchTime.sessions?.map(s => {
+            const startMs = Date.parse(s.start);
+            const endMs = s.end ? Date.parse(s.end) : NaN;
+            const duration = typeof s.duration === 'number'
+                ? s.duration
+                : (Number.isFinite(endMs) ? Math.max(0, Math.floor((endMs - startMs) / 1000)) : 0);
+            return {
+                start: s.start,
+                end: s.end ?? undefined,
+                duration
+            };
+        });
+        return {
+            name,
+            time: branchTime.seconds,
+            lastUpdated: branchTime.lastUpdated,
+            sessionCount: branchTime.sessionCount,
+            averageSessionTime: branchTime.averageSessionTime,
+            percentage: 0, // Will be calculated after filtering
+            switchingFrequency: branchTime.switchingFrequency,
+            timeDistribution: branchTime.timeDistribution,
+            firstSessionDate: branchTime.firstSessionDate,
+            lastSessionDate: branchTime.lastUpdated,
+            dailyAverages,
+            sessions
+        };
+    });
     
     // Apply date range filter
     if (filters.dateRange) {
@@ -77,11 +126,10 @@ export function applyFilters(branchTimes: Map<string, BranchTime>, filters: Stat
         });
     }
     
-    // Apply branch pattern filter
+    // Apply branch pattern filter (supports wildcards)
     if (filters.branchPattern) {
-        const pattern = filters.branchPattern.toLowerCase();
         filteredBranches = filteredBranches.filter(branch =>
-            branch.name.toLowerCase().includes(pattern)
+            matchesBranchPattern(branch.name, filters.branchPattern!)
         );
     }
     
@@ -119,16 +167,55 @@ export function applyFilters(branchTimes: Map<string, BranchTime>, filters: Stat
             case 'sessionCount':
                 comparison = a.sessionCount - b.sessionCount;
                 break;
+            case 'switchingFrequency':
+                comparison = (a.switchingFrequency ?? 0) - (b.switchingFrequency ?? 0);
+                break;
         }
         
         return filters.sortOrder === 'desc' ? -comparison : comparison;
     });
     
+    // Compute period comparisons if a date range is provided
+    let comparisons: StatisticsData['comparisons'] | undefined;
+    if (filters.dateRange) {
+        const range = filters.dateRange;
+        const lenMs = range.end.getTime() - range.start.getTime();
+        const prevEnd = new Date(range.start.getTime());
+        const prevStart = new Date(range.start.getTime() - lenMs);
+
+        // Build previous period branches using same mapping logic
+        let prevBranches = Array.from(branchTimes.entries()).map(([name, bt]) => ({
+            name,
+            time: bt.seconds,
+            lastUpdated: bt.lastUpdated,
+            sessionCount: bt.sessionCount,
+            averageSessionTime: bt.averageSessionTime,
+            percentage: 0
+        }));
+        prevBranches = prevBranches.filter(b => {
+            const d = new Date(b.lastUpdated);
+            return d >= prevStart && d <= prevEnd;
+        });
+        const prevTotalTime = prevBranches.reduce((s, b) => s + b.time, 0);
+        const prevSessions = prevBranches.reduce((s, b) => s + (b.sessionCount || 0), 0);
+        const curSessions = filteredBranches.reduce((s, b) => s + (b.sessionCount || 0), 0);
+        const curAvgSession = curSessions > 0 ? Math.floor(totalTime / curSessions) : 0;
+        const prevAvgSession = prevSessions > 0 ? Math.floor(prevTotalTime / prevSessions) : 0;
+
+        const pct = (cur: number, prev: number) => prev > 0 ? ((cur - prev) / prev) * 100 : (cur > 0 ? 100 : 0);
+        comparisons = {
+            time: { current: totalTime, previous: prevTotalTime, percentageChange: pct(totalTime, prevTotalTime) },
+            sessions: { current: curSessions, previous: prevSessions, percentageChange: pct(curSessions, prevSessions) },
+            averageSessionTime: { current: curAvgSession, previous: prevAvgSession, percentageChange: pct(curAvgSession, prevAvgSession) }
+        };
+    }
+
     return {
         branches: filteredBranches,
         totalTime,
         filters,
-        isLoading: false
+        isLoading: false,
+        comparisons
     };
 }
 

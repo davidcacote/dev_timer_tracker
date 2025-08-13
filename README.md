@@ -2,7 +2,7 @@
 
 A VS Code extension that tracks time spent on different Git branches with a beautiful tab-based interface.
 
-**Current Version**: 0.3.3
+**Current Version**: 0.4.0
 
 ## Features
 
@@ -18,6 +18,11 @@ A VS Code extension that tracks time spent on different Git branches with a beau
 - Enhanced UI with better visual hierarchy
 - Persistent tab-based statistics view
 - Real-time branch time tracking
+- Advanced analytics: session averages, switching frequency (sessions/day), time-of-day distribution, daily averages
+- Period comparisons with percentage deltas (current vs previous period)
+- Powerful filtering: branch pattern (wildcards), date range pickers with quick presets (Today/Week/Month/Year)
+- Time thresholds (min/max) and multi-metric sorting (incl. Switching/day, Last Updated)
+- Insights panel: most active day/time, average daily time, consistency score
 
 ## Installation
 
@@ -54,6 +59,17 @@ This extension contributes the following settings:
 - `branchTimeTracker.updateInterval`: How often to update the branch time (in milliseconds)
 
 ## Version History
+
+### [0.4.0] - 2025-08-13
+
+- **Added**: Advanced statistics calculation engine
+  - Session averages, switching frequency, time-of-day distribution, daily averages
+  - Period comparisons with percentage change indicators
+- **Added**: Enhanced Statistics webview
+  - Real-time branch pattern filtering (wildcards), date range controls with presets
+  - Time threshold filtering (min/max), sorting by multiple metrics
+  - Insights panel (most active day/time, average daily time, consistency score)
+- **Improved**: UI polish for summary cards and statistics table with new sortable columns
 
 ### [0.3.2] - 2025-07-24
 
@@ -99,24 +115,19 @@ For detailed changelog, see [CHANGELOG.md](./CHANGELOG.md).
 
 ## 🚀 Development Status
 
-### Current Version: 0.3.2
+### Current Version: 0.4.0
 
 - **Status**: Stable release
-- **Focus**: Bug fixes and performance improvements
-- **Last Updated**: July 24, 2025
+- **Focus**: Advanced analytics, filtering UX, and insights
+- **Last Updated**: August 13, 2025
 
-### Upcoming Version: 0.3.3
+### Upcoming Version: 0.4.1
 
-- **Status**: In development
-- **Focus**: Critical bug fixes and UX improvements
-- **Planned Release**: August 2025
-- **Key Improvements**:
-  - Memory leak fixes
-  - Active branch change detection
-  - Race condition prevention
-  - Enhanced error handling
+- **Status**: Planning
+- **Focus**: Per-branch insights, streaks, and unit tests for analytics
+- **Planned Release**: August/September 2025
 
-For detailed development roadmap, see [v0.3.3 Roadmap](./analysis/v0.3.2/VERSION_0.3.3_ROADMAP.md).
+For detailed development roadmap, see [analysis](./analysis/).
 
 ## 📊 Analysis & Documentation
 
@@ -125,7 +136,7 @@ This project includes comprehensive analysis documentation for each version:
 - **[Analysis Documentation](./analysis/)** - Complete analysis of code quality, UX, and development roadmaps
 - **[v0.3.2 Analysis](./analysis/v0.3.2/)** - Latest analysis with critical fixes and v0.3.3 roadmap
 
-### Key Analysis Documents:
+### Key Analysis Documents
 
 - **Executive Summary** - High-level overview and critical issues
 - **Technical Analysis** - Detailed code review with specific fixes

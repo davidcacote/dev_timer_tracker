@@ -150,7 +150,7 @@
     - Add extension activation and deactivation handling
     - _Requirements: 5.5, 6.5_
 
-- [ ] 9. Implement advanced statistics and analytics
+- [x] 9. Implement advanced statistics and analytics
 
   - [x] 9.1 Create enhanced statistics calculation engine
 
@@ -166,6 +166,13 @@
     - Implement sorting options for different metrics
     - _Requirements: 3.1, 3.4, 3.5_
 
+  _Completion Notes (v0.4.0):_
+  - Advanced metrics implemented: session averages, switching frequency, time-of-day distribution, daily averages
+  - Period comparisons with percentage deltas added to summary cards
+  - Webview filters include branch pattern (wildcards), date range with presets, min/max time thresholds
+  - Sorting by multiple metrics (incl. Switching/day and Last Updated); added dropdown controls
+  - Insights panel added: most active day/time, average daily time, consistency score
+
 - [ ] 10. Add comprehensive error handling and recovery
 
   - [x] 10.1 Implement error recovery strategies
@@ -175,11 +182,17 @@
     - Implement graceful degradation for service failures
     - _Requirements: 5.3, 5.4, 6.3_
 
-  - [ ] 10.2 Add user-friendly error reporting
+  - [x] 10.2 Add user-friendly error reporting
     - Create clear error messages with actionable suggestions
     - Implement error logging and diagnostic information
     - Add error recovery UI with user guidance
     - _Requirements: 6.3, 6.4_
+
+    _Completion Notes (v0.4.0):_
+    - Added `LoggerService` with Output Channel logging and VS Code notifications (info/warn/error)
+    - Errors show actionable choices: "Copy details" and "Open logs"
+    - Integrated into `ServiceContainer` for initialization/disposal/workspace-switch failures with user-visible messages
+    - Added `UserError` model for consistent, reportable error details across services
 
 - [ ] 11. Create comprehensive test suite
 

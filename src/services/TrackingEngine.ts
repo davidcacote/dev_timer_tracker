@@ -168,6 +168,10 @@ export class TrackingEngine implements ITrackingEngine {
     // Auto-save timer
     private autoSaveTimer: NodeJS.Timeout | null = null;
     private readonly autoSaveInterval = 30000; // 30 seconds
+    
+    // UI update timer (for live counter updates)
+    private uiUpdateTimer: NodeJS.Timeout | null = null;
+    private readonly uiUpdateInterval = 1000; // 1 second
 
     constructor(
         timerService: ITimerService,
@@ -209,6 +213,8 @@ export class TrackingEngine implements ITrackingEngine {
 
             // Set up auto-save timer
             this.setupAutoSave();
+            // Set up UI update tick for live counter
+            this.setupUiTick();
 
             this.isInitialized = true;
             this.notifyStateChange();
@@ -510,6 +516,12 @@ export class TrackingEngine implements ITrackingEngine {
             clearInterval(this.autoSaveTimer);
             this.autoSaveTimer = null;
         }
+        
+        // Clear UI update timer
+        if (this.uiUpdateTimer) {
+            clearInterval(this.uiUpdateTimer);
+            this.uiUpdateTimer = null;
+        }
 
         // Dispose services
         this.timerService.dispose();
@@ -593,6 +605,27 @@ export class TrackingEngine implements ITrackingEngine {
                 // Don't notify error for auto-save failures to avoid spam
             }
         }, this.autoSaveInterval);
+    }
+
+    /**
+     * Set up periodic UI updates while tracking is active
+     */
+    private setupUiTick(): void {
+        if (this.uiUpdateTimer) {
+            clearInterval(this.uiUpdateTimer);
+        }
+
+        this.uiUpdateTimer = setInterval(() => {
+            try {
+                // Only emit when tracking a branch; paused state still gets rendered but time won't change
+                if (this.currentBranch) {
+                    this.notifyStateChange();
+                }
+            } catch (error) {
+                // Non-fatal; avoid spamming error callbacks
+                console.error('UI tick failed:', error);
+            }
+        }, this.uiUpdateInterval);
     }
 
     /**

@@ -314,6 +314,74 @@ export class StatisticsWebview implements IStatisticsWebview {
     }
 
     /**
+     * Generate overall insights panel using aggregated distributions and dates
+     */
+    private generateInsights(data: StatisticsData): string {
+        if (!data || !data.branches || data.branches.length === 0) return '';
+
+        // Aggregate time distribution
+        const distKeys = ['morning','afternoon','evening','night'] as const;
+        const aggDist: Record<string, number> = { morning: 0, afternoon: 0, evening: 0, night: 0 };
+        for (const b of data.branches) {
+            if (!b.timeDistribution) continue;
+            for (const k of distKeys) aggDist[k] += b.timeDistribution[k] || 0;
+        }
+        const mostActiveTimeKey = Object.entries(aggDist).reduce((a, c) => c[1] > (a[1]||0) ? c : a, ['', 0 as any] as any)[0] || 'n/a';
+        const mostActiveTime = mostActiveTimeKey.charAt(0).toUpperCase() + mostActiveTimeKey.slice(1);
+
+        // Aggregate daily averages
+        const dayKeys = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+        const aggDaily: Record<string, number> = Object.fromEntries(dayKeys.map(d => [d, 0]));
+        for (const b of data.branches) {
+            if (!b.dailyAverages) continue;
+            for (const d of dayKeys) aggDaily[d] += b.dailyAverages[d] || 0;
+        }
+        const mostActiveDay = Object.entries(aggDaily).reduce((a, c) => c[1] > (a[1]||0) ? c : a, ['', 0 as any] as any)[0] || 'n/a';
+
+        // Average daily time across overall tracked window
+        const firstDates = data.branches.map(b => b.firstSessionDate).filter(Boolean).map(d => new Date(d!));
+        const lastDates = data.branches.map(b => b.lastSessionDate || b.lastUpdated).filter(Boolean).map(d => new Date(d));
+        let avgDailyTime = 0;
+        if (firstDates.length && lastDates.length) {
+            const start = new Date(Math.min(...firstDates.map(d => d.getTime())));
+            const end = new Date(Math.max(...lastDates.map(d => d.getTime())));
+            const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000*60*60*24)));
+            avgDailyTime = Math.floor(data.totalTime / days);
+        }
+
+        // Consistency score (0-100): based on stddev of aggregated daily averages
+        const values = dayKeys.map(d => aggDaily[d]);
+        const mean = values.reduce((s, v) => s + v, 0) / (values.length || 1);
+        const variance = values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (values.length || 1);
+        const std = Math.sqrt(variance);
+        const score = Math.max(0, Math.min(100, Math.round(100 * (1 - (std / (mean + 1)) ))));
+
+        return `
+            <div class="insights">
+                <h3>Insights</h3>
+                <div class="insight-cards">
+                    <div class="insight-card">
+                        <div class="label">Most Active Day</div>
+                        <div class="value">${mostActiveDay.charAt(0).toUpperCase() + mostActiveDay.slice(1)}</div>
+                    </div>
+                    <div class="insight-card">
+                        <div class="label">Most Active Time</div>
+                        <div class="value">${mostActiveTime}</div>
+                    </div>
+                    <div class="insight-card">
+                        <div class="label">Avg Daily Time</div>
+                        <div class="value">${formatTime(avgDailyTime, false)}</div>
+                    </div>
+                    <div class="insight-card">
+                        <div class="label">Consistency</div>
+                        <div class="value">${score}/100</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
      * Generate CSS styles
      */
     private generateStyles(): string {
@@ -518,33 +586,64 @@ export class StatisticsWebview implements IStatisticsWebview {
                 }
 
                 .summary-stats {
-                    display: flex;
-                    gap: 20px;
-                    margin-bottom: 20px;
-                    flex-wrap: wrap;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+                    gap: 15px;
+                    margin-bottom: 25px;
                 }
 
                 .stat-card {
                     background-color: var(--vscode-panel-background);
-                    border: 1px solid var(--vscode-panel-border);
-                    border-radius: 6px;
+                    border-radius: 8px;
                     padding: 15px;
-                    flex: 1;
-                    min-width: 150px;
+                    text-align: center;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+                    transition: transform 0.2s, box-shadow 0.2s;
+                    border: 1px solid var(--vscode-panel-border);
+                }
+                
+                .stat-card:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
                 }
 
                 .stat-card h3 {
                     margin: 0 0 8px 0;
-                    font-size: 0.9em;
+                    font-size: 0.85em;
                     color: var(--vscode-descriptionForeground);
+                    font-weight: 500;
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
                 }
 
                 .stat-card .value {
-                    font-size: 1.5em;
+                    font-size: 1.6em;
                     font-weight: 600;
                     color: var(--vscode-textLink-foreground);
+                    margin: 5px 0;
+                }
+                
+                .stat-desc {
+                    font-size: 0.75em;
+                    color: var(--vscode-descriptionForeground);
+                    opacity: 0.8;
+                    margin-top: 4px;
+                }
+
+                .delta {
+                    display: inline-block;
+                    font-size: 0.75em;
+                    padding: 2px 6px;
+                    border-radius: 10px;
+                    margin-top: 6px;
+                }
+                .delta.positive {
+                    color: #2e7d32;
+                    background: rgba(46, 125, 50, 0.15);
+                }
+                .delta.negative {
+                    color: #c62828;
+                    background: rgba(198, 40, 40, 0.15);
                 }
 
                 @media (max-width: 768px) {
@@ -634,12 +733,49 @@ export class StatisticsWebview implements IStatisticsWebview {
                 function togglePause() {
                     vscode.postMessage({ command: 'togglePause' });
                 }
+
+                function setSort(field, order) {
+                    currentFilters.sortBy = field;
+                    currentFilters.sortOrder = order;
+                    vscode.postMessage({ command: 'sortBy', field, order });
+                }
                 
                 // Real-time search
                 let searchTimeout;
                 function onSearchInput() {
                     clearTimeout(searchTimeout);
                     searchTimeout = setTimeout(applyFilters, 300);
+                }
+
+                // Debounced apply for date/time inputs
+                function onDateOrTimeInput() {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(applyFilters, 300);
+                }
+
+                // Quick period selection
+                function setPeriod(period) {
+                    const now = new Date();
+                    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    let start = new Date(end);
+                    switch (period) {
+                        case 'today':
+                            // start already today 00:00
+                            break;
+                        case 'week':
+                            start.setDate(end.getDate() - 7);
+                            break;
+                        case 'month':
+                            start.setMonth(end.getMonth() - 1);
+                            break;
+                        case 'year':
+                            start.setFullYear(end.getFullYear() - 1);
+                            break;
+                    }
+                    const fmt = d => d.toISOString().split('T')[0];
+                    document.getElementById('dateStart').value = fmt(start);
+                    document.getElementById('dateEnd').value = fmt(end);
+                    applyFilters();
                 }
                 
                 // Initialize event listeners
@@ -648,6 +784,14 @@ export class StatisticsWebview implements IStatisticsWebview {
                     if (branchPattern) {
                         branchPattern.addEventListener('input', onSearchInput);
                     }
+                    const dateStart = document.getElementById('dateStart');
+                    const dateEnd = document.getElementById('dateEnd');
+                    const minTime = document.getElementById('minTime');
+                    const maxTime = document.getElementById('maxTime');
+                    if (dateStart) dateStart.addEventListener('change', onDateOrTimeInput);
+                    if (dateEnd) dateEnd.addEventListener('change', onDateOrTimeInput);
+                    if (minTime) minTime.addEventListener('input', onDateOrTimeInput);
+                    if (maxTime) maxTime.addEventListener('input', onDateOrTimeInput);
                 });
             </script>
         `;
@@ -709,6 +853,35 @@ export class StatisticsWebview implements IStatisticsWebview {
                         <label for="dateEnd">To Date</label>
                         <input type="date" id="dateEnd" class="filter-input" value="${dateEnd}">
                     </div>
+                    <div class="filter-group" style="align-self: end; gap: 8px;">
+                        <div>
+                            <button class="btn btn-secondary" title="Today" onclick="setPeriod('today')">Today</button>
+                            <button class="btn btn-secondary" title="Last 7 days" onclick="setPeriod('week')">Week</button>
+                            <button class="btn btn-secondary" title="Last 30 days" onclick="setPeriod('month')">Month</button>
+                            <button class="btn btn-secondary" title="Last 365 days" onclick="setPeriod('year')">Year</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label for="sortField">Sort Field</label>
+                        <select id="sortField" class="filter-input" onchange="setSort(this.value, document.getElementById('sortOrder').value)">
+                            <option value="time" ${filters.sortBy === 'time' ? 'selected' : ''}>Time Spent</option>
+                            <option value="name" ${filters.sortBy === 'name' ? 'selected' : ''}>Branch Name</option>
+                            <option value="lastUpdated" ${filters.sortBy === 'lastUpdated' ? 'selected' : ''}>Last Updated</option>
+                            <option value="sessionCount" ${filters.sortBy === 'sessionCount' ? 'selected' : ''}>Sessions</option>
+                            <option value="switchingFrequency" ${filters.sortBy === 'switchingFrequency' ? 'selected' : ''}>Switching/day</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="sortOrder">Order</label>
+                        <select id="sortOrder" class="filter-input" onchange="setSort(document.getElementById('sortField').value, this.value)">
+                            <option value="desc" ${filters.sortOrder === 'desc' ? 'selected' : ''}>Descending</option>
+                            <option value="asc" ${filters.sortOrder === 'asc' ? 'selected' : ''}>Ascending</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-row">
                     <div class="filter-group" style="justify-content: flex-end;">
                         <div style="height: 20px;"></div>
                         <div>
@@ -744,37 +917,80 @@ export class StatisticsWebview implements IStatisticsWebview {
 
         return `
             ${this.generateSummaryStats(data)}
+            ${this.generateInsights(data)}
             ${this.generateStatisticsTable(data)}
         `;
     }
 
     /**
-     * Generate summary statistics cards
+     * Generate summary statistics cards with advanced metrics
      */
     private generateSummaryStats(data: StatisticsData): string {
         const totalBranches = data.branches.length;
         const totalTime = formatTime(data.totalTime, false);
-        const avgTime = data.branches.length > 0 ? 
-            formatTime(Math.floor(data.totalTime / data.branches.length), false) : '0m';
-        const totalSessions = data.branches.reduce((sum, branch) => sum + branch.sessionCount, 0);
+        const totalSessions = data.branches.reduce((sum, branch) => sum + (branch.sessionCount || 0), 0);
+        const avgSessionTime = totalSessions > 0 
+            ? formatTime(Math.floor(data.totalTime / totalSessions), false) 
+            : '0m';
+        const timeComp = data.comparisons?.time;
+        const sessComp = data.comparisons?.sessions;
+        const fmtDelta = (pct?: number) => {
+            if (pct === undefined || isNaN(pct)) return '';
+            const cls = pct >= 0 ? 'positive' : 'negative';
+            const arrow = pct >= 0 ? '▲' : '▼';
+            return `<span class="delta ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+        };
+            
+        // Calculate average switching frequency (sessions per day)
+        const activeBranches = data.branches.filter(b => b.sessionCount > 0);
+        const avgSwitchingFrequency = activeBranches.length > 0
+            ? (activeBranches.reduce((sum, b) => sum + (b.switchingFrequency || 0), 0) / activeBranches.length).toFixed(1)
+            : '0.0';
+
+        // Find most active time of day
+        let mostActiveTime = 'N/A';
+        if (activeBranches.length > 0) {
+            const timeDist = activeBranches[0].timeDistribution;
+            if (timeDist) {
+                const maxTime = Math.max(...Object.values(timeDist));
+                const period = Object.entries(timeDist).find(([_, v]) => v === maxTime)?.[0] || '';
+                mostActiveTime = period.charAt(0).toUpperCase() + period.slice(1);
+            }
+        }
 
         return `
             <div class="summary-stats">
                 <div class="stat-card">
                     <h3>Total Branches</h3>
                     <div class="value">${totalBranches}</div>
+                    <div class="stat-desc">tracked</div>
                 </div>
                 <div class="stat-card">
                     <h3>Total Time</h3>
                     <div class="value">${totalTime}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Average Time</h3>
-                    <div class="value">${avgTime}</div>
+                    ${fmtDelta(timeComp?.percentageChange)}
+                    <div class="stat-desc">across all branches</div>
                 </div>
                 <div class="stat-card">
                     <h3>Total Sessions</h3>
                     <div class="value">${totalSessions}</div>
+                    ${fmtDelta(sessComp?.percentageChange)}
+                    <div class="stat-desc">tracked</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Avg Session</h3>
+                    <div class="value">${avgSessionTime}</div>
+                    <div class="stat-desc">per session</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Activity</h3>
+                    <div class="value">${mostActiveTime}</div>
+                    <div class="stat-desc">most active time</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Switching</h3>
+                    <div class="value">${avgSwitchingFrequency}</div>
+                    <div class="stat-desc">sessions/day</div>
                 </div>
             </div>
         `;
@@ -802,6 +1018,7 @@ export class StatisticsWebview implements IStatisticsWebview {
                     </div>
                 </td>
                 <td>${branch.sessionCount}</td>
+                <td>${(branch.switchingFrequency ?? 0).toFixed(1)}</td>
                 <td>${formatTime(branch.averageSessionTime, false)}</td>
                 <td>${formatLastUpdated(branch.lastUpdated)}</td>
             </tr>
@@ -815,6 +1032,7 @@ export class StatisticsWebview implements IStatisticsWebview {
                         <th class="${getSortClass('time')}" onclick="sortBy('time')">Time Spent</th>
                         <th>Percentage</th>
                         <th class="${getSortClass('sessionCount')}" onclick="sortBy('sessionCount')">Sessions</th>
+                        <th class="${getSortClass('switchingFrequency')}" onclick="sortBy('switchingFrequency')">Switching/day</th>
                         <th>Avg Session</th>
                         <th class="${getSortClass('lastUpdated')}" onclick="sortBy('lastUpdated')">Last Updated</th>
                     </tr>

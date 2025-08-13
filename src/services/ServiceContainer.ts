@@ -7,6 +7,7 @@ import { IConfigurationManager, ConfigurationManager } from './ConfigurationMana
 import { IExportImportService, ExportImportService } from './ExportImportService';
 import { IBackupManager, BackupManager } from './BackupManager';
 import { BranchTime, StatusBarData } from '../models';
+import { ILoggerService, LoggerService } from './LoggerService';
 
 /**
  * Service container interface for dependency injection
@@ -65,7 +66,8 @@ export enum ServiceType {
     TrackingEngine = 'TrackingEngine',
     ConfigurationManager = 'ConfigurationManager',
     ExportImportService = 'ExportImportService',
-    BackupManager = 'BackupManager'
+    BackupManager = 'BackupManager',
+    LoggerService = 'LoggerService'
 }
 
 /**
@@ -101,6 +103,7 @@ export class ServiceContainer implements IServiceContainer {
     private workspaceFolder: vscode.WorkspaceFolder | null = null;
     private initialized = false;
     private initializationPromise: Promise<void> | null = null;
+    private logger: ILoggerService | null = null;
 
     /**
      * Initialize all services with proper dependency order
@@ -127,7 +130,13 @@ export class ServiceContainer implements IServiceContainer {
 
             this.initialized = true;
         } catch (error) {
-            console.error('Service container initialization failed:', error);
+            if (this.logger) {
+                const err = error as Error;
+                this.logger.error('Service container initialization failed', err?.stack || err?.message);
+                await this.logger.showError('Branch Time Tracker failed to initialize. See logs for details.', err?.stack || err?.message);
+            } else {
+                console.error('Service container initialization failed:', error);
+            }
             // Clean up any partially initialized services
             this.dispose();
             throw error;
@@ -143,6 +152,8 @@ export class ServiceContainer implements IServiceContainer {
         }
 
         // Create service instances
+        const logger = new LoggerService('Branch Time Tracker');
+        this.logger = logger;
         const backupManager = new BackupManager();
         const storageService = new StorageService(backupManager);
         const exportImportService = new ExportImportService();
@@ -165,6 +176,7 @@ export class ServiceContainer implements IServiceContainer {
         );
 
         // Register services with their dependencies
+        this.registerService(ServiceType.LoggerService, logger, []);
         this.registerService(ServiceType.BackupManager, backupManager, []);
         this.registerService(ServiceType.StorageService, storageService, [ServiceType.BackupManager]);
         this.registerService(ServiceType.ExportImportService, exportImportService, []);
@@ -225,7 +237,11 @@ export class ServiceContainer implements IServiceContainer {
             await this.initializeServiceInstance(serviceType, registration.instance);
             registration.initialized = true;
         } catch (error) {
-            throw new Error(`Failed to initialize ${serviceType}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            const msg = `Failed to initialize ${serviceType}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            if (this.logger) {
+                this.logger.error(msg, (error as Error)?.stack);
+            }
+            throw new Error(msg);
         }
     }
 
@@ -352,7 +368,12 @@ export class ServiceContainer implements IServiceContainer {
                     }
                     registration.initialized = false;
                 } catch (error) {
-                    console.error(`Error disposing ${serviceType}:`, error);
+                    if (this.logger) {
+                        const err = error as Error;
+                        this.logger.error(`Error disposing ${serviceType}`, err?.stack || err?.message);
+                    } else {
+                        console.error(`Error disposing ${serviceType}:`, error);
+                    }
                 }
             }
         }
@@ -392,7 +413,13 @@ export class ServiceContainer implements IServiceContainer {
                     // Reinitialize with new workspace
                     await this.initializeServiceInstance(serviceType, registration.instance);
                 } catch (error) {
-                    console.error(`Error switching workspace for ${serviceType}:`, error);
+                    if (this.logger) {
+                        const err = error as Error;
+                        this.logger.error(`Error switching workspace for ${serviceType}`, err?.stack || err?.message);
+                        await this.logger.showWarning(`Issue switching workspace for ${serviceType}. See logs for details.`);
+                    } else {
+                        console.error(`Error switching workspace for ${serviceType}:`, error);
+                    }
                 }
             }
         }
