@@ -141,6 +141,36 @@ async function setupExtension(context: vscode.ExtensionContext, state: Extension
     await state.statusBarView.initialize();
     if (state.statisticsWebview) {
         await state.statisticsWebview.initialize();
+        // Forward webview user actions (e.g., togglePause) to engine and refresh UI
+        state.statisticsWebview.setExternalMessageHandler((message: any) => {
+            try {
+                if (!message || !message.command) return;
+                switch (message.command) {
+                    case 'togglePause': {
+                        const current = trackingEngine.getTrackingState();
+                        if (current.isPaused) {
+                            trackingEngine.resumeTracking();
+                            vscode.window.showInformationMessage('Branch time tracking resumed');
+                        } else {
+                            trackingEngine.pauseTracking();
+                            vscode.window.showInformationMessage('Branch time tracking paused');
+                        }
+                        // Ensure both views refresh immediately
+                        updateUI(state, trackingEngine);
+                        break;
+                    }
+                    case 'exportData':
+                    case 'importData':
+                    case 'setAutoRefresh':
+                        // These are handled via dedicated commands/UI flows; ignore here for now
+                        break;
+                    default:
+                        break;
+                }
+            } catch (err) {
+                console.error('Error handling webview message:', err);
+            }
+        });
     }
     if (state.settingsPanel) {
         await state.settingsPanel.initialize();

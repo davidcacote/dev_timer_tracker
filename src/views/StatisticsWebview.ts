@@ -112,6 +112,8 @@ export class StatisticsWebview implements IStatisticsWebview {
     private currentFilters: StatisticsFilters;
     private messageHandlers: Map<string, (message: any) => void> = new Map();
     private disposables: vscode.Disposable[] = [];
+    // External handler so extension can act on webview user actions (e.g., togglePause)
+    private externalMessageHandler: ((message: WebviewMessage) => void) | null = null;
 
     constructor(
         private context: vscode.ExtensionContext,
@@ -130,6 +132,13 @@ export class StatisticsWebview implements IStatisticsWebview {
     async initialize(): Promise<void> {
         // Webview initialization is done when show() is called
         // This method is here for consistency with other views
+    }
+
+    /**
+     * Allow extension to handle unprocessed messages (commands)
+     */
+    public setExternalMessageHandler(handler: (message: WebviewMessage) => void): void {
+        this.externalMessageHandler = handler;
     }
 
     /**
@@ -236,6 +245,20 @@ export class StatisticsWebview implements IStatisticsWebview {
             this.currentFilters.sortOrder = message.order;
             this.updateWebviewContent();
         });
+
+        // Pass through actions that must be handled by the extension/engine
+        this.messageHandlers.set('togglePause', (message) => {
+            this.forwardMessage(message as WebviewMessage);
+        });
+        this.messageHandlers.set('exportData', (message) => {
+            this.forwardMessage(message as WebviewMessage);
+        });
+        this.messageHandlers.set('importData', (message) => {
+            this.forwardMessage(message as WebviewMessage);
+        });
+        this.messageHandlers.set('setAutoRefresh', (message) => {
+            this.forwardMessage(message as WebviewMessage);
+        });
     }
 
     /**
@@ -273,6 +296,13 @@ export class StatisticsWebview implements IStatisticsWebview {
         // This would typically be handled by the extension's main logic
         // For now, we'll emit a custom event or use a callback pattern
         console.log('Forwarding message to extension:', message);
+        if (this.externalMessageHandler) {
+            try {
+                this.externalMessageHandler(message);
+            } catch (err) {
+                console.error('External message handler error:', err);
+            }
+        }
     }
 
     /**
