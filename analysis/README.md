@@ -6,7 +6,7 @@ This folder contains comprehensive analysis documentation for different versions
 
 ### [v0.3.2](./v0.3.2/) - Current Analysis
 
-**Latest comprehensive analysis of the extension**
+#### Latest comprehensive analysis of the extension
 
 - **Date**: July 25, 2025
 - **Status**: Complete
@@ -19,6 +19,19 @@ This folder contains comprehensive analysis documentation for different versions
 - [Technical Analysis](./v0.3.2/CODE_ANALYSIS.md)
 - [UX Diagrams](./v0.3.2/UX_DIAGRAM.md)
 - [Development Roadmap](./v0.3.2/VERSION_0.3.3_ROADMAP.md)
+
+### [v0.3.4](./v0.3.4/) - Stability Focus
+
+#### Focused stabilization release for the 0.3.x line
+
+- **Date**: August 16, 2025
+- **Status**: Planning/In Progress
+- **Focus**: Auto-refresh reliability (status bar + webview), live webview updates, debounced UI, safer data handling, timer lifecycle hardening
+- **Target**: Version 0.3.4
+
+**Key Documents:**
+
+- [Roadmap 0.3.4](./v0.3.4/VERSION_0.3.4_ROADMAP.md)
 
 ## 🎯 Analysis Purpose
 
@@ -125,11 +138,12 @@ When creating new analysis documents:
 - **Source Code**: [../src/](../src/)
 - **Package Configuration**: [../package.json](../package.json)
 
-## 💡 BrainStorming & Future Ideas
+## BrainStorming & Future Ideas
 
 Starting from version 0.3.3, all improvement discussions, ideas, and proposals for Branch Time Tracker will be organized in the new [../BrainStorming/](../BrainStorming/) folder.
 
-### Topics under discussion:
+### Topics under discussion
+
 - Separation of timers by project (multi-repository)
 - Aggregation of timers by IDE (total time for all branches across all open projects)
 - Better organization and visualization of tracking data
