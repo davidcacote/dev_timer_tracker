@@ -19,7 +19,6 @@ All notable changes to the Branch Time Tracker extension will be documented in t
 - Refactoring core tracking engine for better performance
 - Improving test coverage for critical components
 
-
 ## [0.3.3] - 2025-08-09
 
 ### Added
