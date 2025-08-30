@@ -1,0 +1,44 @@
+# Exclude non-essential content from the VSIX package
+# Keep only what the marketplace needs: README.md, CHANGELOG.md, LICENSE, package.json, out/, media/
+
+# Build outputs: include only compiled JS in builds/out
+builds/**
+!builds/out/**
+
+# Development and analysis docs
+analysis/
+BrainStorming/
+
+# Source TypeScript (compiled output in builds/out is what we ship)
+src/
+
+# Node and tooling caches
+node_modules/
+.npmrc
+
+# Git and editor configs
+.git/
+.github/
+.vscode/
+
+# Exclude all markdown by default, then include the ones we need at root
+**/*.md
+!README.md
+!CHANGELOG.md
+
+# Media: include only required assets, exclude backups
+media/**
+!media/icon124.png
+!media/clock.svg
+*.orig.png
+
+# Type checking and local configs
+jsconfig.json
+tsconfig.json
+
+# Maps are optional but can be useful for debugging; comment out to include
+# **/*.map
+
+# OS/editor files
+.DS_Store
+*.log

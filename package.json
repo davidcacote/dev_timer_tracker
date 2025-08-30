@@ -2,7 +2,7 @@
     "name": "branch-time-tracker",
     "displayName": "Branch Time Tracker",
     "description": "Track your coding time per git branch",
-    "version": "0.3.3",
+    "version": "0.3.4",
     "publisher": "davidcacote",
     "repository": {
         "type": "git",
@@ -58,7 +58,7 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "vscode:package": "vsce package --out builds/branch-time-tracker-v0.3.3-$(date +%Y%m%d-%H%M%S).vsix",
+        "vscode:package": "vsce package --out builds/branch-time-tracker-v0.3.4-$(date +%Y%m%d-%H%M%S).vsix",
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile",

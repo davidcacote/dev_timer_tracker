@@ -26,11 +26,32 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
     let currentTimer: NodeJS.Timeout | null = null;
     let autoRefreshEnabled = true; // Enabled by default
     let autoRefreshInterval = 2 * ONE_MINUTE; // Default 2 minutes
-    let refreshCallbacks: Array<() => void> = [];
+    // Simple bus to manage refresh callbacks (minor refactor)
+    class RefreshBus {
+        private callbacks: Array<() => void> = [];
+        on(cb: () => void): vscode.Disposable {
+            this.callbacks.push(cb);
+            return new vscode.Disposable(() => this.off(cb));
+        }
+        off(cb: () => void): void {
+            const i = this.callbacks.indexOf(cb);
+            if (i !== -1) this.callbacks.splice(i, 1);
+        }
+        emit(): void {
+            // iterate over a copy to avoid mutation during emit
+            [...this.callbacks].forEach(cb => {
+                try { cb(); } catch (e) { console.error('Refresh callback error:', e); }
+            });
+        }
+        clear(): void { this.callbacks = []; }
+    }
+
+    const refreshBus = new RefreshBus();
     let branchTimes: Map<string, BranchTime> = new Map();
     let workspaceFolder: vscode.WorkspaceFolder | undefined;
     let statusBarItem: vscode.StatusBarItem;
     let statusBarHighlightTimeout: NodeJS.Timeout | null = null;
+    let statusBarUpdateTimeout: NodeJS.Timeout | null = null; // debounce handle
     let gitHeadWatcher: vscode.FileSystemWatcher | null = null;
     let isTrackingPaused: boolean = false;
 
@@ -56,8 +77,19 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
             }
         } catch (error: any) {
             console.error('Error loading branch times:', error);
+            try {
+                // Backup corrupted file before offering reset
+                if (fs.existsSync(timerFile)) {
+                    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                    const backupPath = timerFile + `.bak-${ts}.json`;
+                    fs.copyFileSync(timerFile, backupPath);
+                }
+            } catch (backupErr) {
+                console.warn('Failed to create backup of corrupted data:', backupErr);
+            }
+
             vscode.window.showErrorMessage(
-                'Failed to load branch time data: ' + error.message + '. You may need to reset your branch time data.',
+                'Failed to load branch time data: ' + error.message + '. A backup was created. Reset data?',
                 'Reset Data'
             ).then(selection => {
                 if (selection === 'Reset Data') {
@@ -73,12 +105,15 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         }
     }
 
-    // Save branch times to storage
+    // Save branch times to storage (atomic write)
     function saveBranchTimes(): void {
         try {
             const data = JSON.stringify(Object.fromEntries(branchTimes), null, 2);
-            fs.mkdirSync(path.dirname(timerFile), { recursive: true });
-            fs.writeFileSync(timerFile, data, 'utf8');
+            const dir = path.dirname(timerFile);
+            fs.mkdirSync(dir, { recursive: true });
+            const tmpPath = path.join(dir, `.${path.basename(timerFile)}.tmp`);
+            fs.writeFileSync(tmpPath, data, 'utf8');
+            fs.renameSync(tmpPath, timerFile); // atomic on most platforms
         } catch (error) {
             console.error('Error saving branch times:', error);
             vscode.window.showErrorMessage('Failed to save branch time data. Check your disk space and permissions.');
@@ -184,8 +219,13 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         }
     }
 
-    // Update status bar with time spent on current branch (without seconds)
+    // Update status bar with time spent on current branch (without seconds) with debounce
     function updateStatusBar(): void {
+        if (statusBarUpdateTimeout) {
+            clearTimeout(statusBarUpdateTimeout);
+        }
+
+        statusBarUpdateTimeout = setTimeout(() => {
         const getStatusIcon = () => {
             if (!workspaceFolder) return '$(error)';
             if (!currentBranch) return '$(error)';
@@ -221,6 +261,8 @@ export function activate(context: vscode.ExtensionContext): BranchTimeTrackerExt
         statusBarItem.tooltip = `${isTrackingPaused ? '⏸️ Tracking Paused\n' : ''}Spent ${formattedTime} on branch "${currentBranch}"
 Last updated: ${lastUpdated}
 Click for detailed statistics`;
+            statusBarUpdateTimeout = null;
+        }, 100);
     }
 
     // Format last updated timestamp for display
@@ -401,6 +443,8 @@ Click for detailed statistics`;
                 setupGitHeadWatcher();
                 await handleBranchChange();
                 updateStatusBar();
+                // Ensure auto-refresh timer reflects the new workspace context
+                setupAutoRefresh();
             } else {
                 statusBarItem.text = '$(error) No workspace folder';
                 statusBarItem.tooltip = 'Open a workspace with a Git repository to track branch time';
@@ -408,6 +452,8 @@ Click for detailed statistics`;
                     gitHeadWatcher.dispose();
                     gitHeadWatcher = null;
                 }
+                // Stop accrual when no workspace is available
+                stopAutoRefresh();
             }
         });
     }
@@ -436,44 +482,58 @@ Click for detailed statistics`;
         return parts.length > 0 ? parts.join(' ') : '0m';
     }
 
-    // Set up or update the auto-refresh timer
-    function setupAutoRefresh(): void {
-        // Clear any existing timer
+    // Compute the effective refresh interval (enforce lower bound)
+    function getEffectiveInterval(): number {
+        return Math.max(ONE_MINUTE, autoRefreshInterval);
+    }
+
+    // Stop the global auto-refresh timer
+    function stopAutoRefresh(): void {
         if (currentTimer) {
             clearInterval(currentTimer);
             currentTimer = null;
         }
+    }
+
+    // Set up or update the auto-refresh timer
+    function setupAutoRefresh(): void {
+        // Clear any existing timer first
+        stopAutoRefresh();
 
         // Set up new timer if auto-refresh is enabled
         if (autoRefreshEnabled) {
             currentTimer = setInterval(() => {
-                // Update branch time
-                if (currentBranch) {
-                    updateBranchTime();
+                // Guard against accrual when paused or no workspace
+                if (!isTrackingPaused && workspaceFolder) {
+                    if (currentBranch) {
+                        updateBranchTime();
+                    }
                 }
-                
-                // Update status bar
+
+                // Always keep UI in sync
                 updateStatusBar();
-                
+
                 // Notify all registered callbacks (e.g., webview panels)
-                refreshCallbacks.forEach(callback => callback());
-                
-            }, autoRefreshInterval);
+                refreshBus.emit();
+
+            }, getEffectiveInterval());
             
             console.log(`Auto-refresh enabled with ${autoRefreshInterval / ONE_MINUTE} minute interval`);
         }
     }
 
-    // Register a callback to be called on each auto-refresh
+    // Register a callback to be called on each auto-refresh (delegates to RefreshBus)
     function registerRefreshCallback(callback: () => void): vscode.Disposable {
-        refreshCallbacks.push(callback);
-        
-        return new vscode.Disposable(() => {
-            const index = refreshCallbacks.indexOf(callback);
-            if (index !== -1) {
-                refreshCallbacks.splice(index, 1);
-            }
-        });
+        return refreshBus.on(callback);
+    }
+
+    // Helpers: prepare data for stats view
+    function getSortedBranches(): [string, BranchTime][] {
+        return Array.from(branchTimes.entries()).sort((a, b) => b[1].seconds - a[1].seconds);
+    }
+
+    function getTotalSeconds(entries: [string, BranchTime][]): number {
+        return entries.reduce((sum, [_, time]) => sum + time.seconds, 0);
     }
 
     // Show branch time statistics in a new tab
@@ -488,12 +548,9 @@ Click for detailed statistics`;
             return;
         }
 
-        // Sort branches by time spent (descending)
-        const sortedBranches = Array.from(branchTimes.entries())
-            .sort((a, b) => b[1].seconds - a[1].seconds);
-
-        // Calculate total time across all branches
-        const totalSeconds = sortedBranches.reduce((sum, [_, time]) => sum + time.seconds, 0);
+        // Sort branches and compute totals
+        const sortedBranches = getSortedBranches();
+        const totalSeconds = getTotalSeconds(sortedBranches);
 
         // Create and show a new webview panel
         const panel = vscode.window.createWebviewPanel(
@@ -508,10 +565,8 @@ Click for detailed statistics`;
 
         // Update panel content function
         const updatePanelContent = () => {
-            const freshBranches = Array.from(branchTimes.entries())
-                .sort((a, b) => b[1].seconds - a[1].seconds);
-            const freshTotal = freshBranches.reduce((sum, [_, time]) => sum + time.seconds, 0);
-            
+            const freshBranches = getSortedBranches();
+            const freshTotal = getTotalSeconds(freshBranches);
             panel.webview.html = getBranchStatsHtml(freshBranches, freshTotal);
         };
 
@@ -571,14 +626,54 @@ Click for detailed statistics`;
             undefined,
             context.subscriptions
         );
-        
+
         // Register for auto-refresh updates
         const refreshDisposable = registerRefreshCallback(updatePanelContent);
+
+        // Panel-scoped live update timer to guarantee updates even if global auto-refresh is disabled
+        let panelTimer: NodeJS.Timeout | null = null;
+
+        function startPanelTimer() {
+            if (panelTimer) return;
+            const intervalMs = getEffectiveInterval(); // consistent interval policy
+            panelTimer = setInterval(() => {
+                if (!isTrackingPaused && workspaceFolder) {
+                    if (currentBranch) {
+                        updateBranchTime();
+                    }
+                    updatePanelContent();
+                    updateStatusBar();
+                }
+            }, intervalMs);
+        }
+
+        function stopPanelTimer() {
+            if (panelTimer) {
+                clearInterval(panelTimer);
+                panelTimer = null;
+            }
+        }
+
+        // Start timer when panel is visible
+        if (panel.visible) {
+            startPanelTimer();
+        }
+
+        // Manage visibility changes
+        const viewStateDisposable = panel.onDidChangeViewState(() => {
+            if (panel.visible) {
+                startPanelTimer();
+            } else {
+                stopPanelTimer();
+            }
+        });
 
         // Clean up when the panel is disposed
         panel.onDidDispose(() => {
             messageDisposable.dispose();
             refreshDisposable.dispose();
+            viewStateDisposable.dispose();
+            stopPanelTimer();
         });
     }
 

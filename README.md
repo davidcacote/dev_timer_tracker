@@ -2,7 +2,7 @@
 
 A VS Code extension that tracks time spent on different Git branches with a beautiful tab-based interface.
 
-**Current Version**: 0.3.3
+**Current Version**: 0.3.4
 
 ## Features
 
@@ -55,6 +55,15 @@ This extension contributes the following settings:
 
 ## Version History
 
+### [0.3.4] - 2025-08-16
+
+- **Changed**: Consolidated auto-refresh into a single interval; immediate apply on interval change
+- **Changed**: Webview live updates while visible with panel-scoped timer and proper lifecycle
+- **Changed**: Debounced status bar updates to reduce flicker
+- **Fixed**: Data validation with backup on corruption and safe reset flow
+- **Fixed**: Atomic writes for data persistence
+- **Fixed**: Time no longer accrues when paused or when no workspace is available
+
 ### [0.3.3] - 2025-08-01
 
 - **Fixed**: Memory leak prevention and performance optimizations
@@ -106,11 +115,11 @@ For detailed changelog, see [CHANGELOG.md](./CHANGELOG.md).
 
 ## 🚀 Development Status
 
-### Current Version: 0.3.3
+### Current Version: 0.3.4
 
 - **Status**: Stable release
-- **Focus**: Critical bug fixes and UX improvements
-- **Last Updated**: August 1, 2025
+- **Focus**: Stability, predictable auto-refresh, safer data handling
+- **Last Updated**: August 16, 2025
 
 ### Previous Version: 0.3.2
 
@@ -118,14 +127,15 @@ For detailed changelog, see [CHANGELOG.md](./CHANGELOG.md).
 - **Focus**: Bug fixes and performance improvements
 - **Released**: July 24, 2025
 
-For detailed development roadmap, see [v0.3.3 Roadmap](./analysis/v0.3.2/VERSION_0.3.3_ROADMAP.md).
+For detailed development roadmap, see [v0.3.4 Roadmap](./analysis/v0.3.4/VERSION_0.3.4_ROADMAP.md).
 
 ## 📊 Analysis & Documentation
 
 This project includes comprehensive analysis documentation for each version:
 
 - **[Analysis Documentation](./analysis/)** - Complete analysis of code quality, UX, and development roadmaps
-- **[v0.3.2 Analysis](./analysis/v0.3.2/)** - Latest analysis with critical fixes and v0.3.3 roadmap
+- **[v0.3.4 Analysis](./analysis/v0.3.4/)** - Stability-focused release scope and roadmap
+- **[v0.3.2 Analysis](./analysis/v0.3.2/)** - Previous analysis with critical fixes and v0.3.3 roadmap
 
 ### Key Analysis Documents:
 
@@ -166,7 +176,7 @@ This project includes a build system that organizes build artifacts in a `builds
    npm run vscode:package
    ```
 
-   This creates a VSIX file in the `builds` directory with a timestamp in the filename (e.g., `branch-time-tracker-0.3.3-20250725-224600.vsix`).
+   This creates a VSIX file in the `builds` directory with a timestamp in the filename (e.g., `branch-time-tracker-v0.3.4-20250816-020040.vsix`).
 
 ### Build Organization
 
@@ -210,7 +220,15 @@ To install a local build in VS Code:
 
 ## Release Notes
 
-### 0.3.3 (Latest)
+### 0.3.4 (Latest)
+
+- Consolidated auto-refresh (single interval, immediate apply)
+- Webview live updates when visible (panel timer, proper lifecycle)
+- Debounced status bar updates (reduced flicker)
+- Data validation + backup on corruption; atomic saves
+- Timer lifecycle hardening (no accrual when paused/no workspace)
+
+### 0.3.3
 
 - Memory leak prevention and performance optimizations
 - Real-time branch change detection improvements
