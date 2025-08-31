@@ -1,36 +1,60 @@
 # BrainStorming - Branch Time Tracker
 
-This document is for recording ideas, discussions, and improvement proposals for Branch Time Tracker.
+This document organizes ideas and proposals for Branch Time Tracker into clear categories.
 
-## Initial Topics
+## Time Tracking Features
 
-### 1. Separation of Timers by Project
+### Project & Workspace Management
+- **Project-specific Tracking**
+  - Separate timers by project/repository
+  - Project-specific configurations
+  - Multi-workspace support
 
-- Allow users to view and manage the time spent on each project/repository separately.
-- Useful for those who work on multiple projects simultaneously.
+### Data Visualization & Reporting
+- **Advanced Analytics**
+  - Trends, comparisons, and heatmaps
+  - Weekly/Monthly reports
+  - Branch time goals tracking
 
-### 2. Aggregation of Timers by IDE
+### User Experience
+- **Timer Controls**
+  - Time tracking presets
+  - Pause/resume functionality
+  - Idle time detection
 
-- Enable viewing the total time spent across all branches of all projects open in the IDE.
-- Makes it easier to track total IDE usage time, regardless of project.
+## Technical Improvements
 
-### 3. Better Organization of Tracking Data
+### Architecture
+- Core engine refactoring (modular architecture)
+- Performance optimization (memory, storage, UI)
+- Expanded test coverage (80%+ target)
+- Performance monitoring and logging
 
-- Explore ways to present tracking data more clearly and intuitively.
-- Suggestions for visualization, filters, export, etc.
+### Data Management
+- **Export/Import**
+  - Multiple formats (CSV, JSON)
+  - Scheduled exports
+  - Data validation and backup
 
----
+## UI/UX Enhancements
 
-Add new ideas, comments, or proposals for discussion below!
+### Interface Customization
+- Status bar customization (position/priority, formats)
+- Webview theming and compact mode
+- Settings UI for common controls
 
-## Ideas collected during v0.3.4 scoping
+### Data Presentation
+- Intuitive data organization
+- Advanced filtering options
+- Clear visualization of time tracking data
 
-- Advanced analytics beyond stability work (trends, comparisons, heatmaps)
-- Settings UI for auto-refresh and pause/resume (GUI) instead of only webview controls
-- Status bar customization (position/priority, compact/expanded formats)
-- Webview theming options and compact mode
-- Optional telemetry/metrics for performance diagnostics (opt-in)
-- Test suite expansion (unit + integration harness for webview)
-- Performance monitoring hooks and logging framework
-- Additional export formats or automation (CSV variants, scheduled export)
-- Integrations with external time tracking services (e.g., Toggl, Harvest)
+## Integration & Extensibility
+- External service integration (Toggl, Harvest)
+- API for third-party extensions
+- Optional telemetry (opt-in)
+
+## Future Considerations
+- Branch categories and tags
+- Enhanced collaboration features
+- Mobile/desktop companion apps
+- AI-powered time tracking suggestions
