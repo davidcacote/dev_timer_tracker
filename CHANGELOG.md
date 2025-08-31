@@ -2,8 +2,6 @@
 
 All notable changes to the Branch Time Tracker extension will be documented in this file.
 
-## [Unreleased]
-
 ## [0.4.0] - Unreleased
 
 ### Planned
@@ -18,6 +16,21 @@ All notable changes to the Branch Time Tracker extension will be documented in t
 
 - Refactoring core tracking engine for better performance
 - Improving test coverage for critical components
+
+## [0.3.4] - 2025-08-16
+
+### Changed
+
+- Consolidated auto-refresh logic to ensure a single active interval and immediate application on interval changes
+- Webview live updates while visible via panel-scoped timer with proper start/stop on visibility and dispose
+- Debounced status bar updates to reduce flicker and unnecessary work
+- Minor refactors: introduced helper functions for interval policy and stats data preparation
+
+### Fixed
+
+- Safer data handling: validate JSON on load, create timestamped backup on corruption, and reset flow
+- Atomic saves: write to temp file then rename to prevent partial writes
+- Timer lifecycle hardening: no time accrues when paused or when no workspace is available
 
 ## [0.3.3] - 2025-08-09
 

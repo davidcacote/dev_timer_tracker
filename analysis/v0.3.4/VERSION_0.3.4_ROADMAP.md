@@ -11,35 +11,41 @@ A small, focused release to harden 0.3.x. Primary goals: predictable auto‑refr
 
 ## ✅ In-Scope Tasks
 
-1. Auto‑refresh logic consolidation
+1. Auto‑refresh logic consolidation — ✅ Completed (2025-08-16)
    - Ensure a single source of truth for refresh ticks
    - Prevent overlapping timers across activation, settings change, workspace change
    - Acceptance: only one active interval at any time; changing interval applies within one tick
+   - Implemented: centralized interval management and immediate apply on setting change in `src/extension.ts`
 
-2. Webview live updates when visible
+2. Webview live updates when visible — ✅ Completed (2025-08-16)
    - Guarantee periodic updates even if global auto‑refresh is disabled
    - Strategy: panel‑scoped lightweight refresh timer that runs only while panel is visible, or subscribe to a shared refresh bus
    - Acceptance: with panel open and tracking active, numbers increase without clicking refresh
+   - Implemented: panel‑scoped timer in `src/extension.ts` within `showBranchStats()`; starts on visibility, stops on hide/dispose; updates content and status bar
 
-3. Status bar debouncing and lightweight updates
+3. Status bar debouncing and lightweight updates — ✅ Completed (2025-08-16)
    - Debounce rapid updates to avoid flicker
    - Avoid heavy computation on each tick; compute only needed values
    - Acceptance: no visible flicker; updates feel smooth
+   - Implemented: 100ms debounce in `src/extension.ts` `updateStatusBar()`
 
-4. Data validation + safe writes
+4. Data validation + safe writes — ✅ Completed (2025-08-16)
    - Validate loaded JSON and create timestamped backup on corruption before reset
    - Use atomic write (write temp file then rename)
    - Acceptance: corrupted file leads to backup + recovery without crashes
+   - Implemented: atomic save via temp file + rename in `saveBranchTimes()`; backup on load failure + reset prompt in `loadBranchTimes()` (`src/extension.ts`)
 
-5. Timer lifecycle hardening
+5. Timer lifecycle hardening — ✅ Completed (2025-08-16)
    - Pause updating when workspace is missing/inactive; resume cleanly when available
    - Ensure pausing via UI prevents time accrual across all update paths
    - Acceptance: no time accrues while paused or when no workspace exists
+   - Implemented: guards in update paths and pause checks in `src/extension.ts`
 
-6. Minor refactors
+6. Minor refactors — ✅ Completed (2025-08-16)
    - Extract refresh management into a small module (e.g., RefreshBus/CallbackManager)
    - Split large functions in `showBranchStats()` and centralize constants
    - Acceptance: functions <150 lines; constants grouped at top; callbacks are disposed reliably
+   - Implemented: `RefreshBus` class introduced in `src/extension.ts`; `showBranchStats()` helpers extracted (`getSortedBranches()`, `getTotalSeconds()`, `getBranchStatsHtml()` already isolated); constants centralized at top
 
 ## 🔍 Verification/Regression Checks
 

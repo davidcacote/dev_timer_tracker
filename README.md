@@ -99,7 +99,15 @@ This project includes a build system that organizes build artifacts in a `builds
 
 ## Release Notes
 
-### 0.3.3 (Latest)
+### 0.3.4 (Latest)
+
+- Consolidated auto-refresh (single interval, immediate apply)
+- Webview live updates when visible (panel timer, proper lifecycle)
+- Debounced status bar updates (reduced flicker)
+- Data validation + backup on corruption; atomic saves
+- Timer lifecycle hardening (no accrual when paused/no workspace)
+
+### 0.3.3
 
 - Memory leak prevention and performance optimizations
 - Real-time branch change detection improvements
